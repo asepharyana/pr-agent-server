@@ -1,0 +1,65 @@
+name: Build & Deploy (Nix)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        run: |
+          git clone https://git.imrnes.team/MythEclipse/pr-agent-server.git .
+          git checkout ${{ github.sha }}
+
+      - name: Build & Deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -eu
+
+          # --- Install Nix & Build ---
+          curl -fsSL https://install.determinate.systems/nix \
+            | sh -s -- install linux --no-confirm --init none 2>&1
+
+          mkdir -p /etc/nix
+          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+
+          echo "=== Building: pr-agent-server ==="
+          nix build .#default --impure --option sandbox false 2>&1
+
+          STORE_PATH=$(readlink result)
+          echo "=== Store path: $STORE_PATH"
+
+          # --- Deploy ---
+          NIX_BIN="/nix/var/nix/profiles/default/bin"
+          PROFILE="/nix/var/nix/profiles/pr-agent-server"
+
+          key_file=$(mktemp /tmp/deploy-key.XXXXXX)
+          printf '%s\n' "$VPS_SSH_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          sed -i 's/\r$//' "$key_file"          # strip DOS line endings if any
+
+          export NIX_SSHOPTS="-i $key_file -o StrictHostKeyChecking=no"
+          nix copy --to "ssh://${VPS_USER}@${VPS_HOST}" "$STORE_PATH" 2>&1
+
+          ssh -i "$key_file" -o StrictHostKeyChecking=no \
+            "${VPS_USER}@${VPS_HOST}" "
+            export PATH=\$PATH:$NIX_BIN
+            if [ -d $PROFILE ] && [ ! -L $PROFILE ]; then
+              rm -rf $PROFILE
+            fi
+            nix-env --profile $PROFILE --set $STORE_PATH
+            systemctl daemon-reload
+            systemctl restart pr-agent-server
+            sleep 3
+            systemctl status pr-agent-server --no-pager 2>&1 | head -12
+          " 2>&1

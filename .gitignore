@@ -1,0 +1,11 @@
+# Secrets — never commit
+*.pem
+*credentials*.json
+webhook_secret.txt
+whsec*.txt
+.secrets.toml
+.env
+
+# Python
+__pycache__/
+*.pyc

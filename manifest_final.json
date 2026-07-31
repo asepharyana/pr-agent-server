@@ -1,0 +1,24 @@
+{
+  "name": "pr-agent-auto-review",
+  "url": "https://github.com/asepharyana",
+  "hook_attributes": {
+    "url": "https://pr-agent.asepharyana.my.id/api/v1/github_webhooks",
+    "active": true
+  },
+  "redirect_url": "https://pr-agent.asepharyana.my.id/setup/callback",
+  "callback_urls": [
+    "https://pr-agent.asepharyana.my.id/setup/callback"
+  ],
+  "public": false,
+  "default_events": [
+    "pull_request",
+    "issue_comment"
+  ],
+  "default_permissions": {
+    "pull_requests": "write",
+    "issues": "write",
+    "contents": "read",
+    "metadata": "read",
+    "checks": "write"
+  }
+}
