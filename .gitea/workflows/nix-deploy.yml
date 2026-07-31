@@ -44,9 +44,15 @@ jobs:
           PROFILE="/nix/var/nix/profiles/pr-agent-server"
 
           key_file=$(mktemp /tmp/deploy-key.XXXXXX)
-          printf '%s\n' "$VPS_SSH_KEY" > "$key_file"
+          # VPS_SSH_KEY may be stored base64-encoded (multiline corruption workaround)
+          if printf '%s' "$VPS_SSH_KEY" | base64 -d 2>/dev/null | head -c 6 | grep -q "BEGIN"; then
+            printf '%s' "$VPS_SSH_KEY" | base64 -d > "$key_file"
+          else
+            printf '%s\n' "$VPS_SSH_KEY" > "$key_file"
+          fi
           chmod 600 "$key_file"
           sed -i 's/\r$//' "$key_file"          # strip DOS line endings if any
+          ssh-keygen -y -f "$key_file" >/dev/null 2>&1 || { echo "SSH key invalid"; exit 1; }
 
           export NIX_SSHOPTS="-i $key_file -o StrictHostKeyChecking=no"
           nix copy --to "ssh://${VPS_USER}@${VPS_HOST}" "$STORE_PATH" 2>&1
