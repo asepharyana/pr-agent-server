@@ -18,6 +18,7 @@
           src = ./.;
 
           nativeBuildInputs = [ python pkgs.git pkgs.cacert ];
+          buildInputs = [ pkgs.stdenv.cc.cc.lib ];
 
           buildPhase = ''
             export HOME=$TMPDIR/home
@@ -42,6 +43,7 @@
             cat > $out/bin/pr-agent-server << WRAPPER
 #!${pkgs.runtimeShell}
 export PATH=${pkgs.git}/bin:\$PATH
+export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:\$LD_LIBRARY_PATH
 cd $out/lib/pr-agent-server
 exec $out/venv/bin/python run_server.py
 WRAPPER
