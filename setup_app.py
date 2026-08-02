@@ -17,9 +17,9 @@ DESCRIPTION = "Automated PR review and merge bot powered by AI"
 HOME_URL = "https://github.com/asepharyana"
 PUBLIC_IP = "45.127.35.244"
 PORT = 4002
-WEBHOOK_URL = f"http://{PUBLIC_IP}:{PORT}/api/v1/github_webhooks"
-REDIRECT_URL = f"http://{PUBLIC_IP}:{PORT}/app-setup-complete"
-CALLBACK_URLS = [f"http://{PUBLIC_IP}:{PORT}/callback"]
+WEBHOOK_URL = "https://pr-agent.asepharyana.my.id/api/v1/github_webhooks"
+REDIRECT_URL = "https://pr-agent.asepharyana.my.id/app-setup-complete"
+CALLBACK_URLS = ["https://pr-agent.asepharyana.my.id/callback"]
 
 # Generate webhook secret
 WEBHOOK_SECRET = secrets.token_hex(20)
