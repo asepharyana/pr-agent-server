@@ -10,6 +10,6 @@ from pr_agent.servers.github_app import app
 import uvicorn
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", "3000"))
+    port = int(os.environ.get("PORT", "4002"))
     print(f"Starting PR-Agent GitHub App server on 0.0.0.0:{port}")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
