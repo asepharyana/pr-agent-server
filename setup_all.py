@@ -15,11 +15,11 @@ manifest = {
     "name": "pr-agent-auto",
     "url": "https://github.com/asepharyana",
     "hook_attributes": {
-        "url": "http://45.127.35.244:3000/api/v1/github_webhooks",
+        "url": "https://pr-agent.asepharyana.my.id/api/v1/github_webhooks",
         "active": True
     },
-    "redirect_url": "http://45.127.35.244:3000/setup/callback",
-    "callback_urls": ["http://45.127.35.244:3000/setup/callback"],
+    "redirect_url": "https://pr-agent.asepharyana.my.id/setup/callback",
+    "callback_urls": ["https://pr-agent.asepharyana.my.id/setup/callback"],
     "public": False,
     "default_events": ["pull_request", "issue_comment"],
     "default_permissions": {
