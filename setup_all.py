@@ -69,7 +69,7 @@ api_base = "https://omniroute.imrnes.team/v1"
 deployment_type = "app"
 # Will be filled after app creation:
 # app_id = 123456
-# private_key = """
+# private_key = "<paste PEM here>"
 # webhook_secret = "{WEBHOOK_SECRET}"
 """
 
