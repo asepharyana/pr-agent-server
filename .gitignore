@@ -9,3 +9,4 @@ whsec*.txt
 # Python
 __pycache__/
 *.pyc
+result
