@@ -19,10 +19,28 @@ FALLBACKS = ["openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4
 CONSECUTIVE_FAIL_FILE = Path("/tmp/pr-agent-health-fail-count")
 
 # ── key from BWS ────────────────────────────────────────────────────────────
+def _read_token() -> str:
+    """Read BWS token. Direct read fails for non-root (root:bws 640), so fall
+    back to `sudo -n cat` (cron user `code` is in sudo group, NOPASSWD)."""
+    for path in (Path("/etc/bws-token"),):
+        try:
+            if path.is_file():
+                return path.read_text().strip()
+        except PermissionError:
+            pass
+    try:
+        r = subprocess.run(["sudo", "-n", "cat", "/etc/bws-token"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
 def get_key() -> str:
     token = os.environ.get("BWS_ACCESS_TOKEN", "")
-    if not token and Path("/etc/bws-token").is_file():
-        token = Path("/etc/bws-token").read_text().strip()
+    if not token:
+        token = _read_token()
     if not token:
         return ""
     env = {**os.environ, "BWS_ACCESS_TOKEN": token}
