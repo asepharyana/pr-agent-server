@@ -64,7 +64,14 @@ app.include_router(pr_router)
 
 # ── Analytics / Metrics ─────────────────────────────────────────────────────
 def _read_analytics_logs(max_files: int = 5) -> list:
-    """Parse PR-Agent analytics JSON logs (analytics=True records)."""
+    """Parse PR-Agent analytics JSON logs (analytics=True records).
+
+    Real log lines look like:
+      {"text": "...", "record": {"elapsed": {...}, "extra": {"command": "...", "pr_url": "..."},
+       "file": {...}, "function": "...", "level": {"name": "INFO", ...},
+       "message": "...", "module": "...", "process": {...}, "thread": {...},
+       "time": {"repr": "2026-08-04 ...", "timestamp": ...}}}
+    """
     records = []
     files = sorted(glob.glob(os.path.join(ANALYTICS_DIR, "pr-agent.*.log")))
     for f in files[-max_files:]:
@@ -78,7 +85,9 @@ def _read_analytics_logs(max_files: int = 5) -> list:
                         rec = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    # Normalize structure: {message, extra{...}}
+                    # PR-Agent wraps under "record": {...}
+                    if "record" in rec and isinstance(rec["record"], dict):
+                        rec = rec["record"]
                     extra = rec.get("extra", {}) or {}
                     if "artifact" in extra and isinstance(extra["artifact"], dict):
                         extra.update(extra.pop("artifact"))
