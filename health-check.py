@@ -3,11 +3,16 @@
 PR-Agent Model Health Watchdog
 ===============================
 Runs every 10 minutes via Hermes no_agent cron. Tests the exact model config
-the pr-agent server uses (primary + fallbacks) against 9router via litellm.
+the pr-agent server uses (primary + fallbacks) against 9router via raw HTTP.
 
 Output contract (no_agent cron):
   - OK → empty stdout (silent, $0 idle)
   - FAIL → one-line alert + detail (delivered to Discord/home channel)
+
+Design: alert only when EVERY configured model fails (primary AND all
+fallbacks). If any model works, the server's own fallback chain will succeed,
+so the system is healthy even if the primary is down/slow. This prevents
+false alerts from a single slow/failed model.
 """
 import os, sys, json, hashlib, subprocess
 from pathlib import Path
@@ -16,6 +21,9 @@ BWS_SECRET_ID = "2aef2194-971d-4dae-99dd-b49a0041f97c"
 ROUTER_BASE = "https://9router.asepharyana.my.id/v1"
 PRIMARY = "openai/claude-opus-4-8"
 FALLBACKS = ["openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4-flash-free"]
+# Caddy 9router route is now response_header_timeout 120s / read 300s.
+# LLM combo TTFT often 30-40s+. Give the check room to complete.
+HTTP_TIMEOUT = 150
 CONSECUTIVE_FAIL_FILE = Path("/tmp/pr-agent-health-fail-count")
 
 # ── key from BWS ────────────────────────────────────────────────────────────
@@ -52,14 +60,14 @@ def get_key() -> str:
         if r.returncode != 0:
             return ""
         # Value is shell-quoted KEY="value" — take first line only. BWS sometimes
-        # appends "# one or more secrets have been commented-out..." after a
-        # problematic key rename; only the first line is the real key value.
+        # appends "# one or more secrets have been commented-out..."; only the
+        # first line is the real key value.
         line = r.stdout.split("\n")[0]
         if "=" not in line:
             return ""
-        val = line.split("=", 1)[1].strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
+        val = line.split("=", 1)[1].strip().strip('"')
+        if len(val) < 10:
+            return ""
         return val
     except Exception:
         return ""
@@ -88,7 +96,7 @@ def check_model(model: str, key: str) -> tuple:
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
             return r.status == 200, f"HTTP {r.status}"
     except urllib.error.HTTPError as e:
         err = e.read().decode(errors="replace")[:160].replace("\n", " ")
@@ -103,21 +111,31 @@ def main() -> int:
         print("⚠️ pr-agent health: cannot fetch router key from BWS (bws unavailable)")
         return 1
 
-    failures = []
-    ok_primary, detail = check_model(PRIMARY, key)
-    if not ok_primary:
-        failures.append(f"primary {PRIMARY} → {detail}")
-    for fb in FALLBACKS:
-        ok, d = check_model(fb, key)
-        if not ok:
-            failures.append(f"fallback {fb} → {d}")
+    results = {}
+    ok_somewhere = False
+    results[PRIMARY] = check_model(PRIMARY, key)
+    ok_somewhere = ok_somewhere or results[PRIMARY][0]
+    if not ok_somewhere:
+        for fb in FALLBACKS:
+            results[fb] = check_model(fb, key)
+            if results[fb][0]:
+                ok_somewhere = True
+                break  # bound runtime; one working model is enough
+        else:
+            # ensure every fallback appears in results for the report
+            for fb in FALLBACKS:
+                results.setdefault(fb, (False, "not tested (prior model failed)"))
+    else:
+        for fb in FALLBACKS:
+            results.setdefault(fb, (True, "not checked (primary ok)"))
 
-    if not failures:
-        # healthy — clear counter, stay silent
+    # Any model working = server's fallback chain will succeed = healthy.
+    if ok_somewhere:
         CONSECUTIVE_FAIL_FILE.unlink(missing_ok=True)
         return 0
 
-    # At least one model failed. Count consecutive failures to avoid flapping.
+    # Every model failed. Count consecutive to avoid flapping on 1-off glitch.
+    failures = [f"{m} → {d}" for m, (ok, d) in results.items() if not ok]
     n = 1
     if CONSECUTIVE_FAIL_FILE.exists():
         try:
@@ -127,7 +145,6 @@ def main() -> int:
     CONSECUTIVE_FAIL_FILE.write_text(str(n))
 
     if n < 2:
-        # first failure — could be transient, stay quiet
         return 0
 
     detail = " | ".join(failures)
