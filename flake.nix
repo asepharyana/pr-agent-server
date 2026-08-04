@@ -39,6 +39,10 @@
           installPhase = ''
             mkdir -p $out/bin $out/lib/pr-agent-server
             cp run_server.py $out/lib/pr-agent-server/
+            cp sync-key.py $out/lib/pr-agent-server/
+            cp health-check.py $out/lib/pr-agent-server/
+            cp trivial_merge.py $out/lib/pr-agent-server/
+            cp auto_merge_bot.py $out/lib/pr-agent-server/
 
             cat > $out/bin/pr-agent-server << WRAPPER
 #!${pkgs.runtimeShell}
@@ -48,6 +52,20 @@ cd $out/lib/pr-agent-server
 exec $out/venv/bin/python run_server.py
 WRAPPER
             chmod +x $out/bin/pr-agent-server
+
+            cat > $out/bin/pr-agent-sync-key << WRAPPER2
+#!${pkgs.runtimeShell}
+export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:\$LD_LIBRARY_PATH
+exec $out/venv/bin/python $out/lib/pr-agent-server/sync-key.py
+WRAPPER2
+            chmod +x $out/bin/pr-agent-sync-key
+
+            cat > $out/bin/pr-agent-health-check << WRAPPER3
+#!${pkgs.runtimeShell}
+export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:\$LD_LIBRARY_PATH
+exec $out/venv/bin/python $out/lib/pr-agent-server/health-check.py
+WRAPPER3
+            chmod +x $out/bin/pr-agent-health-check
           '';
         };
       });

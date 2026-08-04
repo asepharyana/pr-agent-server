@@ -73,6 +73,23 @@ def get_pr_reviews(token: str, repo_full: str, pr_number: int) -> list:
         )
         return r.json()
 
+def post_discord_notification(repo_full: str, pr_number: int, status: str, summary: str = "", score: str = "", url: str = ""):
+    """Fire-and-forget Discord notification via the server's internal endpoint."""
+    import httpx
+    notify_url = os.environ.get("PR_AGENT_NOTIFY_URL", "http://127.0.0.1:4002/api/v1/notify_review")
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(notify_url, json={
+                "repo": repo_full,
+                "pr": pr_number,
+                "status": status,
+                "summary": summary[:500],
+                "score": str(score),
+                "url": url,
+            })
+    except Exception:
+        pass
+
 def get_pr_comments(token: str, repo_full: str, pr_number: int) -> list:
     """Get issue comments for a PR"""
     import httpx
@@ -216,6 +233,39 @@ def main():
                 comments = get_pr_comments(token, repo_full, pr_num)
                 has_review, score = has_bot_comment_with_review(comments)
                 
+                # ── TRIVIAL PR FAST-PATH ──
+                # Docs-only / version bumps / dependabot / tiny diffs with green
+                # CI skip the AI-fix + score gate and merge directly.
+                if has_review:
+                    changed_files, total_lines = [], 0
+                    is_trivial = False
+                    try:
+                        from trivial_merge import (
+                            is_trivial_pr, get_pr_changed_files, check_ci_passed,
+                            merge_pr as trivial_merge,
+                        )
+                        changed_files, total_lines = get_pr_changed_files(token, repo_full, pr_num)
+                        is_trivial = is_trivial_pr(pr_title, pr_author, changed_files, total_lines)
+                    except Exception as e:
+                        is_trivial = False
+                        print(f"      ⚠️ trivial check failed: {e}")
+
+                    if is_trivial:
+                        print(f"      ⚡ TRIVIAL PR ({total_lines} lines, {len(changed_files)} files). Fast-path approve+merge...")
+                        ci_ok, ci_msg = check_ci_passed(token, repo_full, pr.get("head", {}).get("sha", ""))
+                        if not ci_ok:
+                            print(f"      ⏳ CI not green: {ci_msg}")
+                            continue
+                        if approve_pr(token, repo_full, pr_num):
+                            print(f"      ✅ Approved (trivial)")
+                        time.sleep(1)
+                        success, msg = trivial_merge(token, repo_full, pr_num, pr.get("head", {}).get("sha", ""))
+                        print(f"      {'✅ Merged!' if success else '❌ ' + msg}")
+                        post_discord_notification(repo_full, pr_num, "done" if success else "failed",
+                                                  summary=f"Trivial PR auto-merged ({total_lines} lines)" if success else f"Trivial merge failed: {msg}",
+                                                  score=score, url=pr.get("html_url", ""))
+                        continue
+
                 if has_review and score >= 5:
                     print(f"      📝 Review found (score: {score}). Approving + merging...")
                     
