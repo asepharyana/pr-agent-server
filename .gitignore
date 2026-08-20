@@ -5,13 +5,20 @@ webhook_secret.txt
 whsec*.txt
 .secrets.toml
 .env
+.env.*
 
 # Python
 __pycache__/
 *.pyc
 result
+
+# Packaging
 *.egg-info/
 .eggs/
 dist/
 build/
 .venv/
+
+# Runtime data
+*.log
+*.pid

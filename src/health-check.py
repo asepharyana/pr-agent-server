@@ -78,7 +78,7 @@ def check_model(model: str, key: str) -> tuple:
     """Returns (ok: bool, detail: str). Uses raw HTTP (no litellm dependency).
 
     NOTE: litellm strips the 'openai/' provider prefix before sending the
-    request body. 9router resolves bare aliases (e.g. 'claude-opus-4-8') to
+    request body. 9router resolves bare aliases (e.g. 'claude-opus-5') to
     its own routing; WITH the prefix it tries the 'openai' provider upstream,
     which has no credentials → 404 'No active credentials for provider: openai'.
     So we strip the prefix here to mirror exactly what the server sends.

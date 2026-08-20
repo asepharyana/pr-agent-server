@@ -26,7 +26,7 @@ jobs:
 
       - name: Python syntax check
         run: |
-          python3 -m py_compile run_server.py auto_merge_bot.py callback_server.py setup_app.py setup_all.py generate_manifest.py generate_manifest_domain.py start_server.py
+          python3 -m py_compile src/run_server.py src/auto_merge_bot.py src/callback_server.py scripts/setup_app.py scripts/setup_all.py scripts/generate_manifest.py scripts/generate_manifest_domain.py src/start_server.py src/sync-key.py src/health-check.py src/trivial_merge.py
 
   build-and-deploy:
     needs: syntax-check
