@@ -26,10 +26,10 @@ os.environ["OPENAI__API_BASE"] = os.environ.get(
     "OPENAI_API_BASE", "https://omniroute.imrnes.team/v1"
 )
 os.environ["OPENAI__KEY"] = omni_key
-os.environ["CONFIG__MODEL"] = os.environ.get("PR_AGENT_MODEL", "openai/claude-opus-4-8")
+os.environ["CONFIG__MODEL"] = os.environ.get("PR_AGENT_MODEL", "openai/claude-opus-5")
 os.environ["CONFIG__FALLBACK_MODELS"] = os.environ.get(
     "PR_AGENT_FALLBACK_MODELS",
-    '["openai/ATLAS","openai/gemini","openai/text","openai/deepseek-v4-flash-free"]',
+    '["openai/claude-sonnet-5","openai/claude-haiku-4-5-20251001","openai/ATLAS","openai/gemini","openai/text","openai/deepseek-v4-flash-free"]',
 )
 os.environ["CONFIG__CUSTOM_MODEL_MAX_TOKENS"] = os.environ.get(
     "PR_AGENT_MAX_TOKENS", "128000"
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "3000"))
     print(f"PR-Agent GitHub App server starting...")
     print(f"  App ID: {os.environ.get('GITHUB_APP_ID', '')}")
-    print(f"  Model: {os.environ.get('PR_AGENT_MODEL', 'openai/claude-opus-4-8')} via omniroute")
+    print(f"  Model: {os.environ.get('PR_AGENT_MODEL', 'openai/claude-opus-5')} via omniroute")
     print(f"  Endpoint: /api/v1/github_webhooks")
     print(f"  Analytics: {ANALYTICS_DIR}")
     print(f"  Port: {port}")

@@ -19,8 +19,8 @@ from pathlib import Path
 
 BWS_SECRET_ID = "2aef2194-971d-4dae-99dd-b49a0041f97c"
 ROUTER_BASE = "https://9router.asepharyana.my.id/v1"
-PRIMARY = "openai/claude-opus-4-8"
-FALLBACKS = ["openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4-flash-free"]
+PRIMARY = "openai/claude-opus-5"
+FALLBACKS = ["openai/claude-sonnet-5", "openai/claude-haiku-4-5-20251001", "openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4-flash-free"]
 # Caddy 9router route is now response_header_timeout 120s / read 300s.
 # LLM combo TTFT often 30-40s+. Give the check room to complete.
 HTTP_TIMEOUT = 150

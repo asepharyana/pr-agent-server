@@ -78,8 +78,8 @@ with open(BASE_DIR / ".secrets.toml", "w") as f:
 
 # ── 4. Create PR-Agent config ──
 config_toml = """[config]
-model = "openai/claude-opus-4-8"
-fallback_models = ["openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4-free"]
+model = "openai/claude-opus-5"
+fallback_models = ["openai/claude-sonnet-5", "openai/claude-haiku-4-5-20251001", "openai/ATLAS", "openai/gemini", "openai/text", "openai/deepseek-v4-flash-free"]
 custom_model_max_tokens = 128000
 git_provider = "github"
 publish_output = true
