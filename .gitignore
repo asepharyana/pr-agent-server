@@ -10,3 +10,8 @@ whsec*.txt
 __pycache__/
 *.pyc
 result
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
