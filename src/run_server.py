@@ -22,14 +22,28 @@ os.environ["GITHUB__WEBHOOK_SECRET"] = os.environ.get("GITHUB_WEBHOOK_SECRET", "
 
 with open(omni_key_path) as f:
     omni_key = f.read().strip()
-os.environ["OPENAI__API_BASE"] = os.environ.get(
-    "OPENAI_API_BASE", "https://omniroute.imrnes.team/v1"
-)
-os.environ["OPENAI__KEY"] = omni_key
-os.environ["CONFIG__MODEL"] = os.environ.get("PR_AGENT_MODEL", "openai/claude-opus-5")
+
+# ── LLM provider routing ─────────────────────────────────────────
+# 9router (and omniroute) reject ALL provider prefixes in the model name
+# (e.g. `openai/claude-...`).  Models are specified bare, e.g. `claude-opus-5`.
+# litellm, however, routes a bare `claude-*` name to the **Anthropic native**
+# provider — which needs its own base URL / key env vars.  So we map the
+# 9router endpoint + key onto `ANTHROPIC_API_BASE` / `ANTHROPIC_API_KEY`
+# instead of the OpenAI-shaped `OPENAI__API_BASE` / `OPENAI__KEY` that litellm
+# would only honour when the model carries an `openai/` prefix.
+#
+# Verified working:
+#   $ litellm.completion(model="claude-opus-5", ...) with the env below → 200
+_llm_base = os.environ.get("OPENAI_API_BASE", "https://9router.asepharyana.my.id/v1")
+os.environ["ANTHROPIC_API_BASE"] = _llm_base
+os.environ["ANTHROPIC_API_KEY"] = omni_key
+os.environ["OPENAI_API_BASE"] = _llm_base
+os.environ["OPENAI_API_KEY"] = omni_key
+
+os.environ["CONFIG__MODEL"] = os.environ.get("PR_AGENT_MODEL", "claude-opus-5")
 os.environ["CONFIG__FALLBACK_MODELS"] = os.environ.get(
     "PR_AGENT_FALLBACK_MODELS",
-    '["claude-sonnet-5","openai/claude-haiku-4-5-20251001","openai/ATLAS","openai/gemini","openai/text","openai/deepseek-v4-flash-free"]',
+    '["claude-sonnet-5","ATLAS","claude-haiku-4-5-20251001"]',
 )
 os.environ["CONFIG__CUSTOM_MODEL_MAX_TOKENS"] = os.environ.get(
     "PR_AGENT_MAX_TOKENS", "128000"
