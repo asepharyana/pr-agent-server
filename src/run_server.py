@@ -43,11 +43,18 @@ os.environ["OPENAI_API_KEY"] = omni_key
 os.environ["CONFIG__MODEL"] = os.environ.get("PR_AGENT_MODEL", "claude-opus-5")
 os.environ["CONFIG__FALLBACK_MODELS"] = os.environ.get(
     "PR_AGENT_FALLBACK_MODELS",
-    '["claude-sonnet-5","ATLAS","claude-haiku-4-5-20251001"]',
+    '["claude-sonnet-5","claude-haiku-4-5-20251001"]',
 )
 os.environ["CONFIG__CUSTOM_MODEL_MAX_TOKENS"] = os.environ.get(
     "PR_AGENT_MAX_TOKENS", "128000"
 )
+# 9router (omniroute) is latency-tolerant but PR-Agent's default litellm
+# timeout (~60-90s) is too short for 15k-token review prompts ->
+# AnthropicException Timeout.  Raise it so the full context fits.
+# PR-Agent uses Dynaconf with prefix `PR_AGENT`; the `ai_timeout` field
+# lives under the [config] section, so the env key is `PR_AGENT__AI_TIMEOUT`.
+os.environ.setdefault("PR_AGENT__AI_TIMEOUT", "300")
+os.environ.setdefault("LITELLM_REQUEST_TIMEOUT", "300")
 os.environ["GITHUB_APP__PR_COMMANDS"] = os.environ.get(
     "PR_AGENT_PR_COMMANDS",
     '["/review --pr_reviewer.require_score_review=true --pr_reviewer.require_security_review=true","/describe","/improve"]',
@@ -64,6 +71,7 @@ DISCORD_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_ALERT_WEBHOOK_URL", "")
 
 sys.path.insert(0, APP_DIR)
 from pr_agent.servers.github_app import app as pr_agent_app, router as pr_router
+from pr_agent.config_loader import get_settings
 from fastapi import FastAPI, Request
 import uvicorn
 import httpx
@@ -74,6 +82,37 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 
 app = FastAPI(middleware=[Middleware(RawContextMiddleware)])
 app.include_router(pr_router)
+
+# ── Override litellm request timeout ──────────────────────────────────────
+# PR-Agent's Dynaconf config uses `envvar_prefix=False` (env vars disabled)
+# and `.toml` files only, so PR_AGENT__AI_TIMEOUT does NOT work.
+# We monkey-patch the loaded settings + litellm global so the long
+# 15k-token review diffs via 9router get 300s instead of the default 120s.
+try:
+    _s = get_settings()
+    _s.config["ai_timeout"] = 300
+except Exception:
+    pass
+import litellm as _litellm
+# Force a higher request timeout — PR-Agent passes `timeout=120` (from
+# configuration.toml `ai_timeout=120`) to litellm.completion, which overrides
+# the global `litellm.request_timeout`.  9router/claude-opus-5 needs more
+# time for 15k-token review diffs.  We wrap acompletion() to clamp the kwarg.
+from pr_agent.algo.ai_handlers import litellm_ai_handler as _laih
+
+_orig_acompletion = _laih.acompletion
+
+
+async def _patched_acompletion(*args, **kwargs):
+    t = kwargs.get("timeout")
+    if t is not None and float(t) <= 120:
+        kwargs["timeout"] = 600
+    return await _orig_acompletion(*args, **kwargs)
+
+
+_laih.acompletion = _patched_acompletion
+_litellm.request_timeout = 600
+
 
 
 # ── Analytics / Metrics ─────────────────────────────────────────────────────
