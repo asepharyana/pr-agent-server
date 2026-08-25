@@ -1,0 +1,23 @@
+[Unit]
+Description=PR-Agent Server — GitHub App webhook server (Nix)
+After=network-online.target nix-daemon.service
+Requires=network-online.target
+
+[Service]
+Type=simple
+Environment="PR_AGENT_MODEL=claude-opus-5"
+Environment="OPENAI_API_BASE=https://9router.asepharyana.my.id/v1"
+Environment="PR_AGENT_FALLBACK_MODELS=claude-sonnet-5 ATLAS"
+ExecStartPre=/usr/local/bin/bws-exec pr-agent -- /nix/var/nix/profiles/pr-agent-server/bin/pr-agent-sync-key
+ExecStart=/bin/bash -c 'export LD_LIBRARY_PATH=/nix/store/0iv8glcslgfcgn371lbjr5jjw5a6cqir-gcc-15.3.0-lib/lib; exec /usr/local/bin/bws-exec pr-agent /nix/store/h4bkq95bxhj33iy2rg9n4l17r1y0z7nf-pr-agent-server-1.0.0/venv/bin/python /opt/pr-agent-server/run_server.py'
+Restart=always
+RestartSec=5
+User=pr-agent
+Group=pr-agent
+WorkingDirectory=/var/lib/pr-agent-server
+NoNewPrivileges=true
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target
