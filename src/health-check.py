@@ -55,13 +55,26 @@ KEYFILE = APP_DIR / "omniroute_key"
 
 def _read_key_from_disk() -> str:
     """Read the router key from the on-disk file maintained by sync-key.py.
-    This is the primary source — always current after service start."""
+    This is the primary source — always current after service start.
+    File is pr-agent:pr-agent 0600, so non-root processes use sudo."""
     try:
         if KEYFILE.is_file():
             key = KEYFILE.read_text().strip()
             if len(key) >= 10:
                 return key
     except (PermissionError, OSError):
+        pass
+    # Fallback: sudo (works when user has NOPASSWD sudo or bws group)
+    try:
+        r = subprocess.run(
+            ["sudo", "-n", "cat", str(KEYFILE)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            key = r.stdout.strip()
+            if len(key) >= 10:
+                return key
+    except Exception:
         pass
     return ""
 
