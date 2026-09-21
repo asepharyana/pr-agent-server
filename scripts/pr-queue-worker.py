@@ -1213,30 +1213,45 @@ def _push_ref(workdir, fork, source, dest, app_token, force=False):
     return False, last, False
 
 
-def _run_claude_sync(workdir, prompt, label, fork):
+def _run_claude_sync(workdir, prompt, label, fork, dry=False):
     """Run Claude Code inside the sync workdir. Returns (ok, snippet).
 
     Mirrors run_ai_fix's invocation (same binary resolution + provider env) but
     with its own log names, a longer timeout (conflict resolution runs a full
-    test suite) and no push expectations — the harness pushes."""
+    test suite) and no push expectations — the harness pushes. Never spawns MCP
+    servers (--mcp-config ''), which have been observed hanging this worker.
+
+    In `dry` mode Claude is still run — the whole point of --dry is to exercise
+    the real conflict resolution without pushing — but every side effect
+    (Discord, state file, workdir cleanup) is skipped."""
     claude_bin = shutil.which("claude") or CLAUDE_BIN
     if not os.path.isfile(claude_bin):
         return False, "[INFRA] Claude Code CLI not found at " + str(claude_bin)
-    try:
-        (workdir / (label + ".prompt.txt")).write_text(prompt)
-    except OSError:
-        pass
+    if not dry:
+        try:
+            (workdir / (label + ".prompt.txt")).write_text(prompt)
+        except OSError:
+            pass
     env = {k: v for k, v in _claude_env().items() if k in (
         "PATH", "HOME", "HERMES_HOME",
         "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_URL",
     )}
+    # Claude Code can hang for many minutes inside this worker when it spawns an
+    # MCP server that stalls (observed 2026-09-21: `ouroboros mcp serve` under
+    # uvx hung with zero output for 15+ minutes → the 900s timeout fired).
+    # --mcp-config '' alone does NOT stop it — `claude -p` still starts MCP
+    # servers from settings.json / managed / plugins. --strict-mcp-config
+    # ignores ALL other MCP configuration and confines file tools to the
+    # workdir. These calls only read/edit files in a throwaway clone and run
+    # git — no MCP server is ever needed.
+    mcp_args = ["--mcp-config", "", "--strict-mcp-config"]
     out_path = workdir / (label + ".out.log")
     try:
         with open(out_path, "w") as lf:
             res = subprocess.run(
                 [claude_bin, "-p", prompt,
                  "--allowedTools", "Read,Edit,Bash,Write",
-                 "--max-turns", str(AI_FIX_MAX_TURNS)],
+                 "--max-turns", str(AI_FIX_MAX_TURNS)] + mcp_args,
                 cwd=str(workdir), stdout=lf, stderr=subprocess.STDOUT,
                 text=True, env=env, timeout=SYNC_CLAUDE_TIMEOUT,
             )
@@ -1440,10 +1455,16 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                    merge_count, divergence, state, cfg, dry=False):
     """One sync attempt for one fork: clone → merge upstream → Claude Code when
     needed → push (or open a PR when the branch is protected). Returns
-    (status, detail) with status ∈ synced|pr-opened|conflict-failed|push-failed|error|dry."""
-    entry = _sync_entry(state, fork)
+    (status, detail) with status ∈ synced|pr-opened|conflict-failed|push-failed|error|dry|pr-path.
+
+    `dry` mode runs every step except the ones with remote side effects — no
+    push, no PR, no state mutation, no Discord — because the caller creates
+    `state` fresh and passes it in (a dry run must leave nothing behind)."""
+    entry = _sync_entry(state, fork) if not dry else {}
     workdir = SYNC_TMP_BASE / fork.replace("/", "_")
     try:
+        if dry:
+            entry = {}  # keep the state passed in untouched during a dry run
         if workdir.exists():
             subprocess.run(["rm", "-rf", str(workdir)], timeout=60)
         workdir.parent.mkdir(parents=True, exist_ok=True)
@@ -1477,29 +1498,32 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                 _sync_git(["merge", "--abort"], workdir, 60)
                 note = (f"{len(conflicted)} conflicting file(s) and conflict resolution is "
                         f"disabled: {', '.join(conflicted[:5])}")
-                entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                              "skip_reason": note, "notified": False})
-                save_sync_state(state)
+                if not dry:
+                    entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                                  "skip_reason": note, "notified": False})
+                    save_sync_state(state)
                 return "conflict-failed", note
             BUFFER.append(f"      🤖 resolving {len(conflicted)} conflict(s) with Claude Code "
                           f"(up to {SYNC_CLAUDE_TIMEOUT}s)...")
             ok, snippet = _run_claude_sync(
                 workdir, _conflict_prompt(fork, parent, upstream_branch, local_branch, conflicted),
-                "claude_sync_conflicts", fork)
+                "claude_sync_conflicts", fork, dry)
             if not ok:
                 _sync_git(["merge", "--abort"], workdir, 60)
                 note = f"conflict resolution failed — {snippet[:200]}"
-                entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                              "skip_reason": note, "notified": False})
-                save_sync_state(state)
+                if not dry:
+                    entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                                  "skip_reason": note, "notified": False})
+                    save_sync_state(state)
                 return "conflict-failed", note
             done, why = _sync_finish_merge(workdir)
             if not done:
                 _sync_git(["merge", "--abort"], workdir, 60)
                 note = f"conflict resolution incomplete — {why}"
-                entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                              "skip_reason": note, "notified": False})
-                save_sync_state(state)
+                if not dry:
+                    entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                                  "skip_reason": note, "notified": False})
+                    save_sync_state(state)
                 return "conflict-failed", note
             resolution = f"Claude Code resolved {len(conflicted)} conflict(s)"
         else:
@@ -1511,7 +1535,7 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                     BUFFER.append(f"      🤖 Claude Code quality pass on {len(merged_files)} merged file(s)...")
                     ok, snippet = _run_claude_sync(
                         workdir, _quality_prompt(fork, parent, upstream_branch, merged_files),
-                        "claude_sync_quality", fork)
+                        "claude_sync_quality", fork, dry)
                     if ok:
                         if _sync_commit_if_dirty(workdir, "fix: auto-fix code quality [skip ci]"):
                             resolution += " + Claude Code quality pass committed"
@@ -1523,9 +1547,10 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
         still_unmerged = _sync_unmerged_files(workdir)
         if still_unmerged:
             note = f"unmerged paths remain: {', '.join(still_unmerged[:5])}"
-            entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                          "skip_reason": note, "notified": False})
-            save_sync_state(state)
+            if not dry:
+                entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                              "skip_reason": note, "notified": False})
+                save_sync_state(state)
             return "conflict-failed", note
 
         merged_sha = (_sync_git(["rev-parse", "HEAD"], workdir, 30).stdout or "").strip()
@@ -1552,6 +1577,9 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                               f"({resolution}); head {merged_sha[:8]}; {detail}")
 
         if protected:
+            if dry:
+                return "pr-path", (f"protected branch detected ({detail[:120]}) — "
+                                   f"would open an upstream-sync PR")
             pr_num = open_sync_pr(token, workdir, fork, parent, local_branch, upstream_branch,
                                   upstream_sha, merge_count, divergence, resolution)
             if pr_num:
@@ -1617,12 +1645,19 @@ def open_sync_pr(token, workdir, fork, parent, base_branch, upstream_branch,
 
 def run_upstream_sync(only=None, dry=False):
     """Sync every fork in the installation (bounded per tick), verify merges we
-    pushed earlier, and return the report lines. Never raises."""
+    pushed earlier, and return the report lines. Never raises.
+
+    In `dry` mode: no state file writes, no Discord posts, no pushes, no PRs —
+    the compare flow runs against a throwaway in-memory state (so the gating
+    `_sync_entry` calls stay off the real /tmp state file) and reports what
+    WOULD happen."""
     lines = []
     if not UPSTREAM_SYNC["enabled"] and not only:
         return lines
     try:
         state = load_sync_state()
+        if dry:
+            state = {}  # never touch the real state during a dry run
         forks = list_fork_repos()
         if only:
             forks = [f for f in forks if f[1] == only]
@@ -1673,26 +1708,31 @@ def run_upstream_sync(only=None, dry=False):
             if res == "synced":
                 merged_sha = (entry.get("pending_verify") or {}).get("sha", "")[:8]
                 lines.append(f"   ✅ merged + pushed: {detail}")
-                post_sync_discord(
-                    f"🔁 Fork synced: {fork}",
-                    [f"⬆️ {merge_count} upstream commit(s) from `{parent}` merged into `{local_branch}`.",
-                     f"merge head `{merged_sha}` (CI-verified on the next ticks; reverted automatically if red).",
-                     f"https://github.com/{fork}"],
-                )
+                if not dry:
+                    post_sync_discord(
+                        f"🔁 Fork synced: {fork}",
+                        [f"⬆️ {merge_count} upstream commit(s) from `{parent}` merged into `{local_branch}`.",
+                         f"merge head `{merged_sha}` (CI-verified on the next ticks; reverted automatically if red).",
+                         f"https://github.com/{fork}"],
+                    )
                 budget -= 1
             elif res == "pr-opened":
                 lines.append(f"   📬 {detail}")
-                post_sync_discord(
-                    f"📬 Fork sync PR opened: {fork}",
-                    [detail, f"https://github.com/{fork}/pulls"],
-                )
+                if not dry:
+                    post_sync_discord(
+                        f"📬 Fork sync PR opened: {fork}",
+                        [detail, f"https://github.com/{fork}/pulls"],
+                    )
                 budget -= 1
             elif res == "dry":
                 lines.append(f"   🧪 dry run: {detail}")
                 budget -= 1
+            elif res == "pr-path":
+                lines.append(f"   🧪 dry run (protected): {detail}")
+                budget -= 1
             elif res == "conflict-failed":
                 lines.append(f"   ⏭️  {detail}")
-                if not entry.get("notified"):
+                if not dry and not entry.get("notified"):
                     entry["notified"] = True
                     save_sync_state(state)
                     post_sync_discord(

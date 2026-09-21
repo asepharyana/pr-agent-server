@@ -181,7 +181,7 @@ def test_clean_merge_synced(tmpdir):
     state = {}
     gitstate = _install_git_fake(merge_code=0, unmerged=[])
     claude_calls = []
-    W._run_claude_sync = lambda workdir, prompt, label, fork: (claude_calls.append(label), (True, "ok"))[1]
+    W._run_claude_sync = lambda workdir, prompt, label, fork, dry=False: (claude_calls.append(label), (True, "ok"))[1]
     W._sync_commit_if_dirty = lambda workdir, msg: False
     pushes = []
 
@@ -201,6 +201,43 @@ def test_clean_merge_synced(tmpdir):
     check("clean merge gets a quality pass", claude_calls == ["claude_sync_quality"], str(claude_calls))
 
 
+def test_dry_run_is_pure(tmpdir):
+    print("3b. --dry never writes state, never posts Discord, never pushes")
+    # NOTE: the dry-path asserts `state == {}` — under the hood the worker builds
+    # a NEW empty state dict for dry runs (run_upstream_sync sets state={});
+    # sync_fork_repo itself also refuses to mutate state in dry mode. The unit
+    # test calls sync_fork_repo directly, so it asserts against a pre-seeded
+    # dict to catch any write through that seam.
+    make_state_file(tmpdir)
+    state = {}
+    _install_git_fake(merge_code=0, unmerged=[])
+    W._run_claude_sync = lambda workdir, prompt, label, fork, dry=False: (True, "ok")
+    W._sync_commit_if_dirty = lambda workdir, msg: False
+    pushes = []
+
+    def fake_push(workdir, fork, source, dest, app_token, force=False):
+        pushes.append(dest)
+        return True, "pat push ok", False
+
+    W._push_ref = fake_push
+    before = dict(state)
+    res, detail = W.sync_fork_repo("tok", "asepharyana/shiro-neko", "zakirkun/shiro-neko",
+                                  "main", "main", "up1", 4, 26, state, W.sync_config("x"), dry=True)
+    check("dry returns 'dry'", res == "dry", f"{res} {detail}")
+    check("dry never pushes", not pushes, str(pushes))
+    check("dry never writes state", state == before, f"{state} vs {before}")
+
+    # conflict path in dry: failed resolution must NOT write state either
+    state = {}
+    _install_git_fake(merge_code=1, unmerged=["src/tools.ts"])
+    W._run_claude_sync = lambda workdir, prompt, label, fork, dry=False: (False, "[INFRA] timed out")
+    before = dict(state)
+    res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state,
+                                   W.sync_config("x"), dry=True)
+    check("dry conflict failure returns conflict-failed", res == "conflict-failed", f"{res} {detail}")
+    check("dry conflict failure writes no state", state == before, f"{state} vs {before}")
+
+
 # ── 4. conflicted merge resolved by Claude ────────────────────────────────
 def test_conflict_resolved(tmpdir):
     print("4. conflicted merge handed to Claude Code, then pushed")
@@ -209,7 +246,7 @@ def test_conflict_resolved(tmpdir):
     _install_git_fake(merge_code=1, unmerged=["src/tools.ts", "src/ui/App.tsx"])
     labels = []
 
-    def fake_claude(workdir, prompt, label, fork):
+    def fake_claude(workdir, prompt, label, fork, dry=False):
         labels.append(label)
         # after resolution the tree is clean → _sync_finish_merge must be called
         W._sync_unmerged_files = lambda w: []
@@ -432,6 +469,7 @@ def main():
         test_upstream_status_parsing()
         test_gating(tmpdir)
         test_clean_merge_synced(tmpdir)
+        test_dry_run_is_pure(tmpdir)
         test_conflict_resolved(tmpdir)
         test_conflict_failed_skips_and_dedupes(tmpdir)
         test_protected_branch_opens_pr(tmpdir)
