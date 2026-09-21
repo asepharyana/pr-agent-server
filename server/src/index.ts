@@ -384,7 +384,7 @@ export function readAnalyticsLogs(dir: string, maxFiles = 5): AnalyticsRecord[] 
 
 /** Append an analytics event in the legacy pr-agent JSONL shape so external
  *  dashboards that parse pr-agent.*.log keep working. */
-function logReviewEvent(dir: string, event: Record<string, unknown>): void {
+export function logReviewEvent(dir: string, event: Record<string, unknown>): void {
   if (!dir) return;
   const fs = require("node:fs") as typeof import("node:fs");
   const path = require("node:path") as typeof import("node:path");
