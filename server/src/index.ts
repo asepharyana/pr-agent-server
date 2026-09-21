@@ -115,7 +115,7 @@ export async function handleWebhook(
           env.discordWebhookUrl,
           `**${owner}/${repo}** PR #${pr.number} reviewed` +
             (result.data && result.data["review"] && (result.data["review"] as Record<string, unknown>)["score"]
-              ? ` — score ${(result.data["review"] as Record<string, unknown>)["score"]}/10`
+              ? ` — score ${(result.data["review"] as Record<string, unknown>)["score"]}/100`
               : "") +
             `\n${result.markdown.slice(0, 4000)}`,
           "✅ PR-Agent Review Complete",
