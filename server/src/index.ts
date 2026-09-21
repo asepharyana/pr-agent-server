@@ -117,7 +117,7 @@ export async function handleWebhook(
             (result.data && result.data["review"] && (result.data["review"] as Record<string, unknown>)["score"]
               ? ` — score ${(result.data["review"] as Record<string, unknown>)["score"]}/100`
               : "") +
-            `\n${result.markdown.slice(0, 4000)}`,
+            `\n${htmlToDiscordPlain(result.markdown).slice(0, 4000)}`,
           "✅ PR-Agent Review Complete",
         );
       }
@@ -145,6 +145,37 @@ let _discordClient: unknown = null;
 async function getHttpx() {
   // minimal: use global fetch
   return fetch;
+}
+
+/** Strip HTML table markup down to Discord-friendly plain text.
+ *  Discord embeds render limited markdown — raw <table>/<td>/<tr> tags
+ *  would show as literal HTML. Convert the reviewer table into lines. */
+function htmlToDiscordPlain(html: string): string {
+  let s = html
+    .replace(/<details>/g, "")
+    .replace(/<\/details>/g, "")
+    .replace(/<summary>/g, "▶ ")
+    .replace(/<\/summary>/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/td>/gi, "")
+    .replace(/<\/th>/gi, "")
+    .replace(/<td[^>]*>/gi, "")
+    .replace(/<th[^>]*>/gi, "")
+    .replace(/<tr[^>]*>/gi, "")
+    .replace(/<table[^>]*>/gi, "")
+    .replace(/<\/table>/gi, "")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return s;
 }
 
 async function sendDiscord(webhook: string, content: string, title?: string): Promise<void> {
