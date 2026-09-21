@@ -45,27 +45,35 @@ pr-agent-server/
 ## Development
 
 ### Prerequisites
-- Nix (for builds)
-- Python 3.12+
+- Bun 1.3.14+ (runtime + build)
 - GitHub App credentials (App ID, private key, webhook secret)
-- BWS (Bitwarden Secrets Manager) access token
+- 9router/OpenAI-compatible key for the LLM
 
 ### Local testing
 
 ```bash
-# Syntax check
-python3 -m py_compile src/run_server.py src/auto_merge_bot.py src/health-check.py src/sync-key.py src/trivial_merge.py src/callback_server.py
+cd server
+bun install
+bunx tsc --noEmit          # typecheck
+bun test                   # unit tests (16 tests)
+bun src/cli.ts --tool review --repo <owner>/<repo> --pr <n> --no-publish
+```
 
-# Nix build
-nix build .#default
+### Run server (after setting up secrets)
 
-# Run server (after setting up secrets)
-export BWS_ACCESS_TOKEN="<your-bws-token>"
-nix run .#pr-agent-server-sync-key  # syncs the router key
-nix run .#pr-agent-server            # starts uvicorn on :3000
+```bash
+# Secrets are resolved at startup: PR_AGENT_APP_ID, private key path,
+# omniroute key file (see src/config.ts + src/secrets.ts)
+cd server
+bun src/index.ts           # starts on PORT (default 4023)
+```
 
-# Health check
-nix run .#pr-agent-server-health-check
+### Test tools end-to-end (real GitHub + LLM)
+
+```bash
+bun e2e.ts --repo asepharyana/nextjs-template --pr 19 --publish
+bun src/cli.ts --tool describe --repo <owner>/<repo> --pr <n>
+bun src/cli.ts --tool improve  --repo <owner>/<repo> --pr <n>
 ```
 
 ## Deployment
@@ -74,10 +82,15 @@ Deploy is fully automated via GitHub Actions on push to `main`:
 
 ```yaml
 # .github/workflows/deploy.yml
-1. syntax-check  → python3 py_compile all modules
-2. build-and-deploy → nix build → SSH to VPS → update profile → restart service
-3. cleanup → nix-gc-vps.sh (with profile link repair)
+1. build-and-deploy → bun install → typecheck → tests → bun build --compile
+   → scp binary to VPS → swap /opt/pr-agent-server/bin/pr-agent-bun
+   → restart pr-agent-bun.service → health check on :4023
+2. cleanup → nix-gc-vps.sh (cleans legacy Nix store entries)
 ```
+
+The production server is a single compiled binary
+(`/opt/pr-agent-server/bin/pr-agent-bun`) running as a systemd service
+(`pr-agent-bun.service`, port 4023, secrets via `bws-exec pr-agent`).
 
 Secrets required in GitHub Actions:
 - `VPS_HOST` — VPS IP address
@@ -87,15 +100,17 @@ Secrets required in GitHub Actions:
 
 ## Ops
 
-- **Health watchdog**: cron `pr-agent-health-watchdog` (every 10 min) → `~/.hermes/scripts/pr-agent-health-check.sh` → Nix binary `pr-agent-health-check`
-- **Key auto-sync**: systemd `ExecStartPre=/usr/local/bin/bws-exec pr-agent -- <profile>/bin/pr-agent-sync-key`
+- **Health watchdog**: cron `pr-agent-health-watchdog` (every 10 min) → `~/.hermes/scripts/pr-agent-health-check.sh` → curl `http://127.0.0.1:4023/health`
+- **Secrets**: systemd `ExecStart=/usr/local/bin/bws-exec pr-agent env PORT=4023 /opt/pr-agent-server/bin/pr-agent-bun`
 - **Prometheus**: `GET /api/metrics` → `pr_agent_requests_total`, `pr_agent_model_failures`
-- **Analytics**: `GET /api/analytics` → JSON summary (unwrap `"record"` field)
+- **Analytics**: `GET /api/analytics` → JSON summary (legacy `pr-agent.*.log` + `pr-agent.bun.jsonl`)
 - **Discord**: `POST /api/v1/notify_review` → pr-agent-ops webhook
 
-## Nix Profile Integrity
+## Legacy (Python/Nix — retired 2026-09-21)
 
-⚠️ See the `devops/pr-agent-deployment` skill for troubleshooting broken `-link` profile symlinks after `nix store gc`. The GC script (`/usr/local/bin/nix-gc-vps.sh`) now includes a repair step.
+The original Python `pr_agent` server (FastAPI + Nix build, port 4002) is fully
+retired: systemd unit deleted, venv removed, `src/*.py` + `scripts/setup_*` +
+flake removed from the repo. The Bun binary replaced it end-to-end.
 
 ## License
 

@@ -1,4 +1,4 @@
-name: Build & Deploy (Nix)
+name: Build & Deploy (Bun)
 
 on:
   push:
@@ -18,46 +18,31 @@ env:
   VPS_USER: ${{ secrets.VPS_USER }}
 
 jobs:
-  syntax-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Python syntax check
-        run: |
-          python3 -m py_compile src/run_server.py src/auto_merge_bot.py src/callback_server.py scripts/setup_app.py scripts/setup_all.py scripts/generate_manifest.py scripts/generate_manifest_domain.py src/start_server.py src/sync-key.py src/health-check.py src/trivial_merge.py
-
   build-and-deploy:
-    needs: syntax-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          submodules: false
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v22
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          determinate: false
-          extra-conf: |
-            sandbox = false
-            accept-flake-config = true
+          bun-version: 1.3.14
 
-      - name: Cache Nix
-        uses: DeterminateSystems/magic-nix-cache-action@v14
-        with:
-          use-flakehub: false
-
-      - name: Build pr-agent-server
-        id: build
+      - name: Typecheck + tests
+        working-directory: server
         run: |
-          nix build .#default --impure --option sandbox false --print-build-logs
-          STORE_PATH=$(readlink result)
-          echo "store-path=$STORE_PATH" >> "$GITHUB_OUTPUT"
-          echo "Build OK: $STORE_PATH"
+          bun install --frozen-lockfile
+          bunx tsc --noEmit
+          bun test
+
+      - name: Build single binary
+        working-directory: server
+        run: |
+          bun build --compile src/index.ts --outfile pr-agent-bun
+          ls -lh pr-agent-bun
 
       - name: Setup SSH key
         env:
@@ -70,18 +55,24 @@ jobs:
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1 || { echo "SSH key invalid"; exit 1; }
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy pr-agent-server to VPS
+      - name: Deploy to VPS
         run: |
-          STORE_PATH="${{ steps.build.outputs.store-path }}"
-          echo "=== Copying pr-agent-server: $STORE_PATH ==="
-          nix copy --to "ssh://$VPS_USER@$VPS_HOST" "$STORE_PATH"
+          echo "=== Uploading pr-agent-bun binary ==="
+          scp server/pr-agent-bun "$VPS_USER@$VPS_HOST:/tmp/pr-agent-bun.new"
 
-          echo "=== Updating profile ==="
-          ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-env --profile /nix/var/nix/profiles/pr-agent-server --set '$STORE_PATH'"
-
-          echo "=== Restarting service ==="
-          ssh "$VPS_USER@$VPS_HOST" "sudo systemctl daemon-reload && sudo systemctl restart pr-agent-server && sleep 3 && sudo systemctl is-active pr-agent-server"
-          echo "✅ pr-agent-server deployed"
+          echo "=== Staging swap + restart ==="
+          ssh "$VPS_USER@$VPS_HOST" '
+            set -e
+            sudo cp /opt/pr-agent-server/bin/pr-agent-bun /opt/pr-agent-server/bin/pr-agent-bun.prev
+            sudo mv /tmp/pr-agent-bun.new /opt/pr-agent-server/bin/pr-agent-bun
+            sudo chown root:root /opt/pr-agent-server/bin/pr-agent-bun
+            sudo chmod 755 /opt/pr-agent-server/bin/pr-agent-bun
+            sudo systemctl restart pr-agent-bun.service
+            sleep 3
+            systemctl is-active pr-agent-bun.service
+            curl -fsS http://127.0.0.1:4023/health
+          '
+          echo "✅ pr-agent-bun deployed"
 
   cleanup:
     # Bersihkan sampah Nix di VPS SETELAH deploy: hapus generasi profile lama
