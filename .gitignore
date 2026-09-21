@@ -6,7 +6,7 @@ whsec*.txt
 .secrets.toml
 .env
 .env.*
-
+**/node_modules/**
 # Python
 __pycache__/
 *.pyc
@@ -22,3 +22,10 @@ build/
 # Runtime data
 *.log
 *.pid
+
+# Planning files (session scratch)
+.planning/
+.tmp/
+
+# Bun TS build artifacts
+*.tsbuildinfo

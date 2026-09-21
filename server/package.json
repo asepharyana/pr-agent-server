@@ -1,0 +1,28 @@
+{
+  "name": "pr-agent-server",
+  "version": "2.0.0",
+  "description": "PR-Agent re-implementation in Bun/TypeScript — GitHub App webhook server + AI PR review engine",
+  "type": "module",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "review": "bun src/cli.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^8.3.1",
+    "@octokit/rest": "^22.0.1",
+    "js-tiktoken": "^1.0.21",
+    "nunjucks": "^3.2.4",
+    "parse-diff": "^0.12.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/nunjucks": "^3.2.6",
+    "typescript": "^5.9.0"
+  }
+}
