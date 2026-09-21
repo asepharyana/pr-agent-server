@@ -230,7 +230,9 @@ def release_lock():
     LOCK_FILE.unlink(missing_ok=True)
 
 def load_fix_state():
-    """Load fixed PRs map {repo_full: {pr_num: last_head_sha}}."""
+    """Load state map {repo_full: {pr_num: {"sha": last_head_sha, "skip_reason": str|None,
+    "notified": bool}}} — records fixed SHA, permanent skip reasons, and
+    whether the skip was already notified (dedupe)."""
     if FIX_STATE_FILE.exists():
         try:
             return json.loads(FIX_STATE_FILE.read_text())
@@ -239,18 +241,56 @@ def load_fix_state():
     return {}
 
 def save_fix_state(state):
-    """Persist fixed PRs map."""
+    """Persist state map."""
     FIX_STATE_FILE.write_text(json.dumps(state))
 
+def _pr_entry(state, repo_full, pr_num):
+    """Get the per-PR entry dict. Migrates the legacy format
+    {repo: {pr: "sha"}} (bare string) to the new dict form in place."""
+    repo_state = state.setdefault(repo_full, {})
+    val = repo_state.get(str(pr_num))
+    if isinstance(val, str):
+        # legacy: {"pr": "sha"} → {"sha": "sha"}
+        repo_state[str(pr_num)] = {"sha": val, "notified": False}
+    return repo_state.setdefault(str(pr_num), {})
+
 def already_fixed(state, repo_full, pr_num, head_sha):
-    """True if this PR was already fixed at this SHA."""
-    repo_state = state.get(repo_full, {})
-    return str(pr_num) in repo_state and repo_state[str(pr_num)] == head_sha
+    """True if this PR was already fixed (or permanently skipped) at this SHA."""
+    entry = _pr_entry(state, repo_full, pr_num)
+    return entry.get("sha") == head_sha
 
 def mark_fixed(state, repo_full, pr_num, head_sha):
     """Mark PR as fixed at given SHA."""
-    repo_state = state.setdefault(repo_full, {})
-    repo_state[str(pr_num)] = head_sha
+    entry = _pr_entry(state, repo_full, pr_num)
+    entry["sha"] = head_sha
+    entry.pop("skip_reason", None)
+    entry["notified"] = False
+    save_fix_state(state)
+
+def get_skip_reason(state, repo_full, pr_num, head_sha):
+    """Return the permanent skip reason for this PR+SHA, or None."""
+    entry = _pr_entry(state, repo_full, pr_num)
+    if entry.get("sha") == head_sha:
+        return entry.get("skip_reason")
+    return None
+
+def mark_skip(state, repo_full, pr_num, head_sha, reason):
+    """Permanently skip AI-fix/merge for this PR at this SHA with a reason.
+    Prevents infinite re-attempts every cron tick on the same PR."""
+    entry = _pr_entry(state, repo_full, pr_num)
+    entry["sha"] = head_sha
+    entry["skip_reason"] = reason
+    save_fix_state(state)
+    return entry
+
+def was_skip_notified(state, repo_full, pr_num, head_sha):
+    """True if the skip notification for this PR+SHA was already sent."""
+    entry = _pr_entry(state, repo_full, pr_num)
+    return bool(entry.get("notified")) and entry.get("sha") == head_sha
+
+def mark_skip_notified(state, repo_full, pr_num, head_sha):
+    entry = _pr_entry(state, repo_full, pr_num)
+    entry["notified"] = True
     save_fix_state(state)
 
 # ── GitHub Data ──
@@ -430,6 +470,19 @@ def post_discord_notification(repo_full, pr_num, status, summary="", score="", u
             })
     except Exception:
         pass
+
+def notify_skip_once(state, repo_full, pr_num, head_sha, reason):
+    """Send a Discord skip notification exactly ONCE per PR+head_sha+reason.
+    Returns True if a notification was sent, False if it was already sent."""
+    if was_skip_notified(state, repo_full, pr_num, head_sha):
+        return False
+    post_discord_notification(
+        repo_full, pr_num, "skipped",
+        summary=f"⏭️ Skipped: {reason} — will not retry until the PR head changes",
+        url=f"https://github.com/{repo_full}/pull/{pr_num}",
+    )
+    mark_skip_notified(state, repo_full, pr_num, head_sha)
+    return True
 
 
 # ── REAL AI AUTO-FIX via Claude Code ──
@@ -860,7 +913,7 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
         claude_bin = shutil.which("claude") or CLAUDE_BIN
         if not os.path.isfile(claude_bin):
             subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-            return False, f"Claude Code CLI not found at {claude_bin}"
+            return False, "[INFRA] Claude Code CLI not found at " + str(claude_bin)
         # If ~/.claude/settings.json already carries ANTHROPIC_BASE_URL/KEY,
         # Claude Code picks them up itself; use the CLI's own config and let
         # the injected env only fill what settings.json does not supply.
@@ -887,10 +940,10 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
         claude_output = saved[-3000:] if len(saved) > 3000 else saved
     except subprocess.TimeoutExpired:
         subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-        return False, "Claude Code timed out"
+        return False, "[INFRA] Claude Code timed out"
     except FileNotFoundError:
         subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-        return False, "Claude Code CLI not found"
+        return False, "[INFRA] Claude Code CLI not found"
 
     # Check if Claude made changes
     push_success = False
@@ -1027,6 +1080,15 @@ def main():
             fix_state = load_fix_state()
             already = already_fixed(fix_state, repo_full, pr_num, head_sha)
 
+            # Permanent skip (infra error / conflict-unresolvable): don't re-run
+            # every cron tick — respect the recorded reason until head changes.
+            skip_reason = get_skip_reason(fix_state, repo_full, pr_num, head_sha)
+            if skip_reason:
+                BUFFER.append(f"   ⏭️  Permanently skipped: {skip_reason} (until head SHA changes)")
+                notify_skip_once(fix_state, repo_full, pr_num, head_sha, skip_reason)
+                skipped_count += 1
+                continue
+
             # ── STEP B: REAL AI Auto-Fix (Claude Code) — ALL PRs (no skip) ──
             if AI_FIX_ENABLED and not no_code_review:
                 # For trivial PRs (dependabot), first try lockfile fix to unblock CI.
@@ -1098,6 +1160,14 @@ def main():
                                     mergeable = fresh_pr.get("mergeable")
                         else:
                             BUFFER.append(f"   ⏭️  AI fix skipped: {summary}")
+                            if summary.startswith("[INFRA]"):
+                                # Infra-level failure (CLI missing/timeout/unreachable):
+                                # permanently skip this PR at this SHA — retrying every
+                                # 5 min would just loop. Notify Discord once.
+                                reason = summary.replace("[INFRA] ", "")
+                                mark_skip(fix_state, repo_full, pr_num, head_sha, reason)
+                                if notify_skip_once(fix_state, repo_full, pr_num, head_sha, reason):
+                                    BUFFER.append(f"   🔔 Skip notified: {reason}")
 
             # ── STEP C: Safety analysis ──
             is_safe, reasons, score = analyze_review_safety(review_body)
@@ -1136,6 +1206,45 @@ def main():
 
             if mergeable is False:
                 BUFFER.append(f"   🔴 Merge conflicts")
+                # Auto-resolve via Claude Code (its prompt already merges base
+                # and resolves conflicts). One attempt per head SHA — if it
+                # keeps conflicting, skip permanently instead of looping.
+                if AI_FIX_ENABLED and not already:
+                    valid, _new_sha, _new_mergeable, _reason = check_pr_still_valid(
+                        token, repo_full, pr_num, head_sha
+                    )
+                    if valid:
+                        BUFFER.append(f"   🤖 Resolving merge conflict with Claude Code...")
+                        kill_orphaned_claude(repo_full, pr_num)
+                        fixed, summary = run_ai_fix(
+                            repo_full, pr_num, title, head_sha, head_ref, base_ref, token
+                        )
+                        if fixed:
+                            BUFFER.append(f"   ✨ Conflict resolved: {summary}")
+                            fixed_count += 1
+                            mark_fixed(fix_state, repo_full, pr_num, head_sha)
+                            # Re-fetch for new head SHA; next cron tick will re-check
+                            # mergeable and merge if clean.
+                            _, fresh_pr = gh_api("GET", f"/repos/{repo_full}/pulls/{pr_num}", token=token)
+                            if isinstance(fresh_pr, dict):
+                                new_sha = fresh_pr.get("head", {}).get("sha", "")
+                                if new_sha and new_sha != head_sha:
+                                    BUFFER.append(f"   🔄 Head SHA updated (conflict fix pushed)")
+                            # Not merged this tick — leave for next cycle
+                            skipped_count += 1
+                            continue
+                        else:
+                            BUFFER.append(f"   ⏭️  Conflict fix failed: {summary}")
+                            if summary.startswith("[INFRA]"):
+                                reason = summary.replace("[INFRA] ", "")
+                            else:
+                                reason = "Unresolvable merge conflict (Claude Code made no push)"
+                            mark_skip(fix_state, repo_full, pr_num, head_sha, reason)
+                            if notify_skip_once(fix_state, repo_full, pr_num, head_sha, reason):
+                                BUFFER.append(f"   🔔 Skip notified: {reason}")
+                            skipped_count += 1
+                            continue
+                BUFFER.append(f"   ⏭️  Skipping (conflict, already attempted at this SHA)")
                 skipped_count += 1
                 continue
 
@@ -1161,6 +1270,37 @@ def main():
                 skipped_count += 1
             elif merge_status == 409:
                 BUFFER.append(f"   ⚠️  Merge conflict")
+                # Race: GitHub said mergeable but merge hit a conflict (stale
+                # mergeable state). Resolve via Claude Code once per head SHA.
+                if AI_FIX_ENABLED and not already:
+                    valid, _new_sha, _new_mergeable, _reason = check_pr_still_valid(
+                        token, repo_full, pr_num, head_sha
+                    )
+                    if valid:
+                        BUFFER.append(f"   🤖 Resolving merge conflict with Claude Code...")
+                        kill_orphaned_claude(repo_full, pr_num)
+                        fixed, summary = run_ai_fix(
+                            repo_full, pr_num, title, head_sha, head_ref, base_ref, token
+                        )
+                        if fixed:
+                            BUFFER.append(f"   ✨ Conflict resolved: {summary}")
+                            fixed_count += 1
+                            mark_fixed(fix_state, repo_full, pr_num, head_sha)
+                            BUFFER.append(f"   🔄 Will re-merge next tick after CI settles")
+                            skipped_count += 1
+                            continue
+                        else:
+                            BUFFER.append(f"   ⏭️  Conflict fix failed: {summary}")
+                            if summary.startswith("[INFRA]"):
+                                reason = summary.replace("[INFRA] ", "")
+                            else:
+                                reason = "Unresolvable merge conflict (Claude Code made no push)"
+                            mark_skip(fix_state, repo_full, pr_num, head_sha, reason)
+                            if notify_skip_once(fix_state, repo_full, pr_num, head_sha, reason):
+                                BUFFER.append(f"   🔔 Skip notified: {reason}")
+                            skipped_count += 1
+                            continue
+                BUFFER.append(f"   ⏭️  Skipping (409 conflict, already attempted)")
                 skipped_count += 1
             else:
                 BUFFER.append(f"   ⚠️  Merge: HTTP {merge_status}")
