@@ -74,6 +74,10 @@ AI_FIX_ENABLED = True
 CLAUDE_BIN = shutil.which("claude") or "/usr/local/bin/claude"
 AI_FIX_MAX_TURNS = 100
 AI_FIX_TIMEOUT = 600  # seconds per PR
+# Hermes gateway API server (OpenAI-compatible). The worker drives the running
+# gateway instead of spawning a CLI: the gateway already holds the provider
+# (9router) config and a full toolset (terminal/file/web).
+API_SERVER_URL = os.environ.get("API_SERVER_URL", "") or "http://127.0.0.1:8642/v1"
 TRACKING_DIR = Path("/tmp/pr-queue-pids")
 AI_FIX_COST_CAP = 0.50  # max budget USD per fix session
 
@@ -875,7 +879,8 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
         subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
         return False, "no changed files to fix"
 
-    # Build Claude Code prompt
+    # Build AI prompt (Hermes API-server agent; the worker pushes, agent only
+    # resolves + commits locally in the cloned workdir)
     file_list = "\n".join("  - " + f for f in changed_files[:30])
     if len(changed_files) > 30:
         file_list += "\n  ... and " + str(len(changed_files) - 30) + " more"
@@ -884,6 +889,7 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
         'You are on the PR #' + str(pr_num) + ' branch of ' + str(repo_full) + ': "' + str(title) + '"\n\n'
         'Files changed in this PR:\n'
         + file_list + '\n\n'
+        'Your working directory is the git worktree for this PR branch.\n'
         'Your task:\n'
         '1. FIRST, try to merge the base branch to resolve any stale conflicts:\n'
         '     git fetch origin ' + str(base_ref) + '\n'
@@ -895,73 +901,31 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
         '   - Fix anti-patterns, improve structure, add docstrings\n'
         '3. Commit ALL changes with EXACT message:\n'
         '     git add -A && git commit --message="fix: auto-fix code quality [skip ci]"\n'
-        '4. Push:\n'
-        '     git push origin HEAD:' + str(head_ref) + '\n\n'
+        '4. Do NOT push — a separate step pushes your commit.\n\n'
         'CRITICAL RULES:\n'
-        '- ONLY modify the files listed above\n'
+        '- ONLY modify the files listed above (plus commit/merge resolution)\n'
         '- Do NOT change program logic or add features\n'
         '- Resolve merge conflicts carefully - keep BOTH sides where needed\n'
         '- You are mytheclipsebotreview - git identity already set\n'
-        '- Use EXACTLY "fix: auto-fix code quality [skip ci]" as commit message'
+        '- Use EXACTLY "fix: auto-fix code quality [skip ci]" as the commit message'
     )
     
-    BUFFER.append("   🤖 Running Claude Code AI fix (" + str(AI_FIX_MAX_TURNS) + " turns max)...")
+    BUFFER.append("   🤖 Running Hermes AI fix (" + str(AI_FIX_MAX_TURNS) + " turns max)...")
 
-    # Write prompt to file so user can see what Claude was asked.
-    # Leftover root-owned copies from the pre-switchover era cause
-    # PermissionError for the code user — write into our own workdir
-    # (we already own it) instead of shared /tmp.
-    log_path = workdir / ("claude_pr_" + str(pr_num) + ".prompt.txt")
+    # Write prompt to file so user can see what the agent was asked.
+    log_path = workdir / ("hermes_pr_" + str(pr_num) + ".prompt.txt")
     log_path.write_text(prompt)
 
-    try:
-        # Re-resolve CLAUDE_BIN at invocation time so a freshly installed
-        # Claude Code is picked up without restarting the worker.
-        claude_bin = shutil.which("claude") or CLAUDE_BIN
-        if not os.path.isfile(claude_bin):
-            subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-            return False, "[INFRA] Claude Code CLI not found at " + str(claude_bin)
-        # If ~/.claude/settings.json already carries ANTHROPIC_BASE_URL/KEY,
-        # Claude Code picks them up itself; use the CLI's own config and let
-        # the injected env only fill what settings.json does not supply.
-        env = {k: v for k, v in _claude_env().items() if k in (
-            "PATH", "HOME", "HERMES_HOME",
-            "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_URL",
-        )}
-        # Run with real-time output to file
-        log_out = workdir / ("claude_pr_" + str(pr_num) + ".out.log")
-        with open(log_out, "w") as lf:
-            result = subprocess.run(
-                [claude_bin, "-p", prompt,
-                 "--allowedTools", "Read,Edit,Bash,Write",
-                 "--max-turns", str(AI_FIX_MAX_TURNS)],
-                cwd=str(workdir),
-                stdout=lf,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=env,
-                timeout=AI_FIX_TIMEOUT
-            )
-        # Read back for analysis
-        saved = log_out.read_text()
-        claude_output = saved[-3000:] if len(saved) > 3000 else saved
-    except subprocess.TimeoutExpired:
+    ok, snippet = _hermes_api_post(prompt, workdir, timeout=AI_FIX_TIMEOUT, label="hermes_pr_" + str(pr_num))
+    if not ok:
         subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-        return False, "[INFRA] Claude Code timed out"
-    except FileNotFoundError:
-        subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
-        return False, "[INFRA] Claude Code CLI not found"
+        pid_file = TRACKING_DIR / (str(repo_full).replace("/", "_") + "_" + str(pr_num) + ".pid")
+        pid_file.unlink(missing_ok=True)
+        return False, snippet
 
-    # Check if Claude made changes
+    # Determine whether the agent actually committed changes:
     push_success = False
     fix_count = 0
-    push_exit = result.returncode
-    if push_exit != 0:
-        BUFFER.append("   ⚠️ Claude Code exited with code " + str(push_exit))
-    
-    if "git push" in claude_output.lower() or "pushed" in claude_output.lower() or "push" in claude_output.lower():
-        push_success = True
-    
     r3 = subprocess.run(
         ["git", "rev-list", "--count", str(head_sha[:12]) + "..HEAD"],
         capture_output=True, text=True, timeout=10, cwd=str(workdir)
@@ -973,17 +937,28 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
             fix_count = new_commits
     except (ValueError, IndexError):
         pass
-    
+
+    if push_success:
+        # Worker pushes the agent's commit (agent must not push).
+        push_r = subprocess.run(
+            ["git", "push", "origin", "HEAD:" + str(head_ref)],
+            capture_output=True, text=True, timeout=60, cwd=str(workdir)
+        )
+        if push_r.returncode != 0:
+            subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
+            pid_file = TRACKING_DIR / (str(repo_full).replace("/", "_") + "_" + str(pr_num) + ".pid")
+            pid_file.unlink(missing_ok=True)
+            return False, "AI committed but push failed: " + (push_r.stderr or push_r.stdout or "")[:200]
+
     # Clean up workdir + PID tracking file
     subprocess.run(["rm", "-rf", str(workdir)], timeout=10)
     pid_file = TRACKING_DIR / (str(repo_full).replace("/", "_") + "_" + str(pr_num) + ".pid")
     pid_file.unlink(missing_ok=True)
     
     if push_success:
-        return True, "Claude Code pushed " + str(fix_count) + " improvement commit(s)"
+        return True, "Hermes AI pushed " + str(fix_count) + " improvement commit(s)"
     else:
-        snippet = claude_output[:300].replace("\n", " ")
-        return False, "Claude ran but no push. Output: " + snippet
+        return False, "Hermes ran but no commit/push. Output: " + (snippet[:300] if snippet else "")
 
 # ══════════════════════════════════════════════════════════════════════════
 # Upstream Fork Auto-Sync (2026-09-21)
@@ -1213,59 +1188,118 @@ def _push_ref(workdir, fork, source, dest, app_token, force=False):
     return False, last, False
 
 
-def _run_claude_sync(workdir, prompt, label, fork, dry=False):
-    """Run Claude Code inside the sync workdir. Returns (ok, snippet).
+def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes"):
+    """Run a Hermes agent task through the local gateway API server
+    (OpenAI-compatible POST /v1/chat/completions on 127.0.0.1:8642).
 
-    Mirrors run_ai_fix's invocation (same binary resolution + provider env) but
-    with its own log names, a longer timeout (conflict resolution runs a full
-    test suite) and no push expectations — the harness pushes. Never spawns MCP
-    servers (--mcp-config ''), which have been observed hanging this worker.
+    The gateway (hermes-gateway.service) runs continuously and holds the
+    provider/9router config + full toolset. This replaces the previous
+    `claude -p` subprocess which failed against this gateway's provider
+    transport (Anthropic Messages mismatch / JSON-not-a-Message / exit 1)
+    and spawned hanging MCP servers.
 
-    In `dry` mode Claude is still run — the whole point of --dry is to exercise
-    the real conflict resolution without pushing — but every side effect
-    (Discord, state file, workdir cleanup) is skipped."""
-    claude_bin = shutil.which("claude") or CLAUDE_BIN
-    if not os.path.isfile(claude_bin):
-        return False, "[INFRA] Claude Code CLI not found at " + str(claude_bin)
+    Returns (ok, snippet). snippet is the agent's final answer text.
+    """
+    import httpx
+    base = os.environ.get("API_SERVER_URL", "") or API_SERVER_URL
+    key = os.environ.get("API_SERVER_KEY", "") or _api_server_key_from_env()
+    if not key:
+        return False, "[INFRA] Hermes API server API_SERVER_KEY not configured"
+    headers = {
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": "hermes-agent",
+        "messages": [
+            {"role": "system", "content": (
+                "You are an autonomous coding agent inside a git worktree. "
+                "Use your terminal and file tools to complete the task. "
+                "Work ONLY inside the current working directory. Do NOT push.")},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "model_options": {"max_turns": AI_FIX_MAX_TURNS},
+    }
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.post(base + "/chat/completions", headers=headers, json=body)
+        if r.status_code != 200:
+            detail = r.text[:300].replace("\n", " ")
+            return False, f"[INFRA] Hermes API server HTTP {r.status_code}: {detail}"
+        data = r.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return False, "[INFRA] Hermes API server returned no choices: " + str(data.get("error", {}).get("message", "unknown"))[:300]
+        text = (choices[0].get("message") or {}).get("content") or ""
+        return True, (text[-4000:].replace("\n", " ") if text else "")
+    except httpx.ConnectError:
+        return False, "[INFRA] Hermes API server unreachable at " + base + " (gateway up? API_SERVER_ENABLED?)"
+    except httpx.TimeoutException:
+        return False, f"[INFRA] Hermes API server timed out after {timeout}s"
+    except Exception as exc:
+        return False, "[INFRA] Hermes API server error: " + str(exc)
+
+
+def _api_server_key_from_env():
+    """Read API_SERVER_KEY from ~/.hermes/.env (the gateway's profile env)."""
+    for dotenv_path in (
+        Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env",
+        Path.home() / ".env",
+    ):
+        try:
+            for line in dotenv_path.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("API_SERVER_KEY="):
+                    return line.partition("=")[2].strip().strip('"').strip("'")
+        except OSError:
+            continue
+    return ""
+
+
+def _ai_fix_via_api(prompt, workdir, label, timeout=SYNC_CLAUDE_TIMEOUT):
+    """Run an AI fix/resolution through the Hermes API server.
+
+    Mirrors the old claude subprocess contract: writes the prompt to a
+    <label>.prompt.txt in the workdir for audit, calls the API server, returns
+    (ok, snippet)."""
+    try:
+        (workdir / (label + ".prompt.txt")).write_text(prompt)
+    except OSError:
+        pass
+    return _hermes_api_post(prompt, workdir, timeout=timeout, label=label)
+
+
+def _run_hermes_sync(workdir, prompt, label, fork, dry=False):
+    """Run Hermes agent inside the sync workdir (conflict resolution / quality pass).
+
+    Replacement for _run_claude_sync. The API-server agent runs with the
+    gateway's own cwd, so to make it operate inside `workdir` we prepend the
+    workdir path to the prompt and instruct the agent to cd there first.
+
+    Returns (ok, snippet)."""
+    out_path = workdir / (label + ".out.log")
     if not dry:
         try:
             (workdir / (label + ".prompt.txt")).write_text(prompt)
         except OSError:
             pass
-    env = {k: v for k, v in _claude_env().items() if k in (
-        "PATH", "HOME", "HERMES_HOME",
-        "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_URL",
-    )}
-    # Claude Code can hang for many minutes inside this worker when it spawns an
-    # MCP server that stalls (observed 2026-09-21: `ouroboros mcp serve` under
-    # uvx hung with zero output for 15+ minutes → the 900s timeout fired).
-    # --mcp-config '' alone does NOT stop it — `claude -p` still starts MCP
-    # servers from settings.json / managed / plugins. --strict-mcp-config
-    # ignores ALL other MCP configuration and confines file tools to the
-    # workdir. These calls only read/edit files in a throwaway clone and run
-    # git — no MCP server is ever needed.
-    mcp_args = ["--mcp-config", "", "--strict-mcp-config"]
-    out_path = workdir / (label + ".out.log")
-    try:
-        with open(out_path, "w") as lf:
-            res = subprocess.run(
-                [claude_bin, "-p", prompt,
-                 "--allowedTools", "Read,Edit,Bash,Write",
-                 "--max-turns", str(AI_FIX_MAX_TURNS)] + mcp_args,
-                cwd=str(workdir), stdout=lf, stderr=subprocess.STDOUT,
-                text=True, env=env, timeout=SYNC_CLAUDE_TIMEOUT,
-            )
-        saved = out_path.read_text() if out_path.exists() else ""
-    except subprocess.TimeoutExpired:
-        return False, f"[INFRA] Claude Code timed out after {SYNC_CLAUDE_TIMEOUT}s"
-    except FileNotFoundError:
-        return False, "[INFRA] Claude Code CLI not found"
-    except OSError as exc:
-        return False, f"[INFRA] Claude Code could not run: {exc}"
-    snippet = saved[-400:].replace("\n", " ") if saved else ""
-    if res.returncode != 0:
-        return False, f"claude exited {res.returncode}: {snippet}"
-    return True, snippet
+    prompt_with_dir = (
+        "Your working directory is " + str(workdir) + ". Start by running:\n"
+        "  cd " + str(workdir) + "\n"
+        "Then complete the task below.\n\n" + prompt
+    )
+    ok, snippet = _hermes_api_post(prompt_with_dir, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label=label)
+    if ok:
+        try:
+            out_path.write_text(label + " ok: " + snippet + "\n")
+        except OSError:
+            pass
+    return ok, snippet
+
+
+# alias so existing call sites keep working
+_run_claude_sync = _run_hermes_sync
 
 
 def _sync_unmerged_files(workdir):
@@ -1503,11 +1537,11 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                                   "skip_reason": note, "notified": False})
                     save_sync_state(state)
                 return "conflict-failed", note
-            BUFFER.append(f"      🤖 resolving {len(conflicted)} conflict(s) with Claude Code "
+            BUFFER.append(f"      🤖 resolving {len(conflicted)} conflict(s) with Hermes "
                           f"(up to {SYNC_CLAUDE_TIMEOUT}s)...")
             ok, snippet = _run_claude_sync(
                 workdir, _conflict_prompt(fork, parent, upstream_branch, local_branch, conflicted),
-                "claude_sync_conflicts", fork, dry)
+                "hermes_sync_conflicts", fork, dry)
             if not ok:
                 _sync_git(["merge", "--abort"], workdir, 60)
                 note = f"conflict resolution failed — {snippet[:200]}"
@@ -1525,20 +1559,20 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                                   "skip_reason": note, "notified": False})
                     save_sync_state(state)
                 return "conflict-failed", note
-            resolution = f"Claude Code resolved {len(conflicted)} conflict(s)"
+            resolution = f"Hermes resolved {len(conflicted)} conflict(s)"
         else:
             resolution = "clean merge"
             if cfg.get("ai_fix_after_merge", True):
                 diff = _sync_git(["diff", "--name-only", f"{pre_merge_sha}..HEAD"], workdir, 120)
                 merged_files = [f for f in (diff.stdout or "").split("\n") if f.strip()]
                 if merged_files:
-                    BUFFER.append(f"      🤖 Claude Code quality pass on {len(merged_files)} merged file(s)...")
+                    BUFFER.append(f"      🤖 Hermes quality pass on {len(merged_files)} merged file(s)...")
                     ok, snippet = _run_claude_sync(
                         workdir, _quality_prompt(fork, parent, upstream_branch, merged_files),
-                        "claude_sync_quality", fork, dry)
+                        "hermes_sync_quality", fork, dry)
                     if ok:
                         if _sync_commit_if_dirty(workdir, "fix: auto-fix code quality [skip ci]"):
-                            resolution += " + Claude Code quality pass committed"
+                            resolution += " + Hermes quality pass committed"
                         else:
                             resolution += " + quality pass made no changes"
                     else:

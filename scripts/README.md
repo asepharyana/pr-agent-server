@@ -8,8 +8,10 @@ repos where the PR-Agent GitHub App is installed and drives the full lifecycle:
 2. **Toolchain pin guard** → closes dependabot PRs that bump pinned toolchain
    majors (see `TOOLCHAIN_PINS` map — typescript/eslint/@tsparticles/…) instead
    of waiting on them forever
-3. **AI auto-fix** → runs Claude Code (`-p`) on the PR head for up to
-   `AI_FIX_MAX_TURNS` turns, then pushes the fix
+3. **AI auto-fix** → runs the Hermes agent via the local gateway API server
+   (`POST /v1/chat/completions` on `127.0.0.1:8642`, `API_SERVER_KEY`) on the PR
+   head for up to `AI_FIX_MAX_TURNS` turns, commits locally, then the worker
+   pushes the fix
 5. **Safety analysis** → parses the review body for security/major-issue
    blockers; score must be ≥ 6/10
 6. **CI gate** → waits for the required check to pass (closes stale dependabot
@@ -23,11 +25,12 @@ installation whose GitHub metadata says `fork: true`: new upstream (parent)
 commits are **merged** (never rebased) into the fork's default branch, gated by
 a per-repo interval (default **1 hour**; `UPSTREAM_SYNC` config block).
 
-- **Conflicted merge** → Claude Code resolves it (merge-reconciler rules: merge
-  hunks by hand, never wholesale `--ours/--theirs`, run the repo's own
-  typecheck/tests before committing). Claude never pushes — the harness does.
-- **Clean merge** → one Claude Code quality pass over the merged files,
-  committed as `fix: auto-fix code quality [skip ci]`.
+- **Conflicted merge** → the Hermes agent (via the gateway API server) resolves
+  it (merge-reconciler rules: merge hunks by hand, never wholesale
+  `--ours/--theirs`, run the repo's own typecheck/tests before committing). The
+  agent never pushes — the harness does.
+- **Clean merge** → one Hermes quality pass over the merged files, committed as
+  `fix: auto-fix code quality [skip ci]`.
 - **Protected default branch** → detect from the push result (GH006 /
   required-status-check) and fall back to opening an `upstream-sync-*` PR that
   the normal pipeline (review → AI fix → CI → approve → merge) finishes.
@@ -47,8 +50,8 @@ python3 scripts/pr-queue-worker.py --sync-status
 python3 scripts/pr-queue-worker.py --sync-only asepharyana/shiro-neko --dry   # stops before push
 python3 scripts/pr-queue-worker.py --sync-only asepharyana/shiro-neko
 ```
-Tests: `python3 scripts/test_pr_queue_sync.py` (46 assertions; no network —
-gh_api/git/Claude/push are monkeypatched).
+Tests: `python3 scripts/test_pr_queue_sync.py` (51 assertions; no network —
+gh_api/git/Hermes API/push are monkeypatched).
 
 ## Deployment
 

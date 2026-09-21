@@ -198,7 +198,7 @@ def test_clean_merge_synced(tmpdir):
     check("pending_verify records merge sha", entry["pending_verify"]["sha"] == gitstate["head"], str(entry))
     check("pending_verify records pre_merge sha", entry["pending_verify"]["pre_merge_sha"].startswith("pre"), str(entry))
     check("last_merged_upstream_sha recorded", entry["last_merged_upstream_sha"] == "up1", str(entry))
-    check("clean merge gets a quality pass", claude_calls == ["claude_sync_quality"], str(claude_calls))
+    check("clean merge gets a quality pass", claude_calls == ["hermes_sync_quality"], str(claude_calls))
 
 
 def test_dry_run_is_pure(tmpdir):
@@ -265,7 +265,7 @@ def test_conflict_resolved(tmpdir):
     W._push_ref = lambda *a, **k: (True, "pat push ok", False)
     res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state, W.sync_config("x"))
     check("status synced", res == "synced", f"{res} {detail}")
-    check("conflict runner used", labels == ["claude_sync_conflicts"], str(labels))
+    check("conflict runner used", labels == ["hermes_sync_conflicts"], str(labels))
     check("merge completed once", finished["n"] == 1, str(finished))
     check("resolution noted in detail", "resolved 2 conflict" in detail, detail)
 
@@ -275,7 +275,7 @@ def test_conflict_failed_skips_and_dedupes(tmpdir):
     make_state_file(tmpdir)
     state = {}
     _install_git_fake(merge_code=1, unmerged=["src/tools.ts"])
-    W._run_claude_sync = lambda *a, **k: (False, "[INFRA] Claude Code timed out")
+    W._run_claude_sync = lambda *a, **k: (False, "[INFRA] Hermes API server timed out")
     W._push_ref = lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not push after failed resolution"))
     res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state, W.sync_config("x"))
     entry = state["f/x"]
@@ -464,6 +464,82 @@ def test_sync_config_override():
     W.UPSTREAM_SYNC["repos"] = {}
 
 
+# ── 14. Hermes API-server client ──────────────────────────────────────────
+def test_hermes_api_client(tmpdir):
+    """The worker's Hermes client must speak OpenAI chat-completions and map
+    failures to [INFRA] strings the skip logic understands. Uses a real local
+    HTTP server (no external network)."""
+    print("14. Hermes API-server client (real HTTP round-trip)")
+    import http.server
+    import threading
+
+    seen = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            seen["path"] = self.path
+            seen["auth"] = self.headers.get("Authorization", "")
+            seen["body"] = body
+            if body.get("messages", [{}])[-1].get("content") == "boom":
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error":{"message":"upstream exploded"}}')
+                return
+            payload = json.dumps({
+                "choices": [{"message": {"role": "assistant", "content": "resolved ok"}}]
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        W.API_SERVER_URL = f"http://127.0.0.1:{port}/v1"
+        W._api_server_key_from_env = lambda: "test-key-0123456789"
+        ok, text = W._hermes_api_post("resolve these conflicts", tmpdir)
+        check("client posts to /v1/chat/completions", seen.get("path") == "/v1/chat/completions", str(seen.get("path")))
+        check("client sends bearer auth", seen.get("auth") == "Bearer test-key-0123456789", str(seen.get("auth")))
+        check("client sends openai messages shape",
+              seen.get("body", {}).get("messages", [{}])[0].get("role") == "system", str(seen.get("body"))[:200])
+        check("client caps turns via model_options",
+              seen.get("body", {}).get("model_options", {}).get("max_turns") == W.AI_FIX_MAX_TURNS,
+              str(seen.get("body", {}).get("model_options")))
+        check("client returns agent text", ok and text == "resolved ok", f"{ok} {text!r}")
+
+        ok2, err2 = W._hermes_api_post("boom", tmpdir)
+        check("HTTP error mapped to [INFRA]", (not ok2) and err2.startswith("[INFRA]") and "500" in err2, err2)
+
+        # missing key → INFRA, never a silent success
+        W._api_server_key_from_env = lambda: ""
+        saved = W.os.environ.pop("API_SERVER_KEY", None)
+        try:
+            ok3, err3 = W._hermes_api_post("x", tmpdir)
+            check("missing key is [INFRA]", (not ok3) and "API_SERVER_KEY" in err3, err3)
+        finally:
+            if saved is not None:
+                W.os.environ["API_SERVER_KEY"] = saved
+
+        # unreachable port → INFRA with guidance
+        W._api_server_key_from_env = lambda: "test-key-0123456789"
+        W.API_SERVER_URL = "http://127.0.0.1:9/v1"
+        ok4, err4 = W._hermes_api_post("x", tmpdir)
+        check("unreachable server is [INFRA]", (not ok4) and "unreachable" in err4, err4)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        W.API_SERVER_URL = "http://127.0.0.1:8642/v1"
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_upstream_status_parsing()
@@ -480,6 +556,7 @@ def main():
         test_list_fork_repos()
         test_push_error_classification()
         test_sync_config_override()
+        test_hermes_api_client(pathlib.Path(tmpdir))
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
         print("failed: " + ", ".join(FAILED))
