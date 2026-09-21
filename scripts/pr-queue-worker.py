@@ -73,7 +73,7 @@ AI_FIX_ENABLED = True
 # skips when the binary exists in PATH but not at the hardcoded location.
 CLAUDE_BIN = shutil.which("claude") or "/usr/local/bin/claude"
 AI_FIX_MAX_TURNS = 100
-AI_FIX_TIMEOUT = 600  # seconds per PR
+AI_FIX_TIMEOUT = 1800  # seconds per PR (agent turns + tool calls, not one inference)
 # Hermes gateway API server (OpenAI-compatible). The worker drives the running
 # gateway instead of spawning a CLI: the gateway already holds the provider
 # (9router) config and a full toolset (terminal/file/web).
@@ -985,7 +985,10 @@ def run_ai_fix(repo_full, pr_num, title, head_sha, head_ref, base_ref, token):
 SYNC_STATE_FILE = Path("/tmp/pr-queue-sync-state.json")
 SYNC_TMP_BASE = Path("/tmp/pr-queue-sync-work")
 SYNC_PR_PREFIX = "upstream-sync-"
-SYNC_CLAUDE_TIMEOUT = 900  # seconds: conflict resolution + verification run
+SYNC_CLAUDE_TIMEOUT = 3600  # seconds: conflict resolution + verification run.
+# Observed 2026-09-21: a fresh session needs ~25 min (56+ API calls) to resolve
+# 17 files + verify + commit. 2700s cut the HTTP call while the agent was still
+# committing. 3600 leaves room; salvage still catches a genuinely hung call.
 UPSTREAM_SYNC = {
     "enabled": os.environ.get("PR_AGENT_UPSTREAM_SYNC", "1") != "0",
     "interval_h": 1.0,            # check upstream hourly (user decision 2026-09-21)
@@ -1188,7 +1191,7 @@ def _push_ref(workdir, fork, source, dest, app_token, force=False):
     return False, last, False
 
 
-def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes"):
+def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes", session_id=None):
     """Run a Hermes agent task through the local gateway API server
     (OpenAI-compatible POST /v1/chat/completions on 127.0.0.1:8642).
 
@@ -1197,6 +1200,12 @@ def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes
     `claude -p` subprocess which failed against this gateway's provider
     transport (Anthropic Messages mismatch / JSON-not-a-Message / exit 1)
     and spawned hanging MCP servers.
+
+    `session_id` (optional) is sent as X-Hermes-Session-Id. When the gateway
+    sees that header it continues that session's transcript (per SHA == one
+    session: a retry of the same upstream tip resumes where the previous run
+    stopped, and a NEW upstream tip gets a fresh context instead of paying a
+    growing 200k-token history from older runs).
 
     Returns (ok, snippet). snippet is the agent's final answer text.
     """
@@ -1209,6 +1218,8 @@ def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes
         "Authorization": "Bearer " + key,
         "Content-Type": "application/json",
     }
+    if session_id:
+        headers["X-Hermes-Session-Id"] = session_id
     body = {
         "model": "hermes-agent",
         "messages": [
@@ -1289,7 +1300,8 @@ def _run_hermes_sync(workdir, prompt, label, fork, dry=False):
         "  cd " + str(workdir) + "\n"
         "Then complete the task below.\n\n" + prompt
     )
-    ok, snippet = _hermes_api_post(prompt_with_dir, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label=label)
+    ok, snippet = _hermes_api_post(prompt_with_dir, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label=label,
+                                   session_id="sync_" + str(fork).replace("/", "_"))
     if ok:
         try:
             out_path.write_text(label + " ok: " + snippet + "\n")
@@ -1307,11 +1319,28 @@ def _sync_unmerged_files(workdir):
     return [f for f in (r.stdout or "").split("\n") if f.strip()]
 
 
+def _sync_has_conflict_markers(workdir):
+    """Tracked files that still contain conflict markers.
+
+    A file the agent `git add`ed mid-resolution would pass the unmerged check
+    while still carrying `<<<<<<<` — never commit that.
+    """
+    r = _sync_git(["grep", "-l", "-E", r"^(<<<<<<<|>>>>>>>|=======)$"],
+                  workdir, 60)
+    # git grep exits 1 when there are no matches (that is the healthy case).
+    if r.returncode not in (0, 1):
+        return []
+    return [f for f in (r.stdout or "").split("\n") if f.strip()]
+
+
 def _sync_finish_merge(workdir):
     """Complete an in-progress merge once every conflict is resolved."""
     unmerged = _sync_unmerged_files(workdir)
     if unmerged:
         return False, f"{len(unmerged)} file(s) still unmerged: {', '.join(unmerged[:5])}"
+    marked = _sync_has_conflict_markers(workdir)
+    if marked:
+        return False, f"conflict markers left in: {', '.join(marked[:5])}"
     _sync_git(["add", "-A"], workdir, 120)
     r = _sync_git(["commit", "--no-edit"], workdir, 120)
     if r.returncode != 0:
@@ -1543,23 +1572,36 @@ def sync_fork_repo(token, fork, parent, local_branch, upstream_branch, upstream_
                 workdir, _conflict_prompt(fork, parent, upstream_branch, local_branch, conflicted),
                 "hermes_sync_conflicts", fork, dry)
             if not ok:
-                _sync_git(["merge", "--abort"], workdir, 60)
-                note = f"conflict resolution failed — {snippet[:200]}"
-                if not dry:
-                    entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                                  "skip_reason": note, "notified": False})
-                    save_sync_state(state)
-                return "conflict-failed", note
-            done, why = _sync_finish_merge(workdir)
-            if not done:
-                _sync_git(["merge", "--abort"], workdir, 60)
-                note = f"conflict resolution incomplete — {why}"
-                if not dry:
-                    entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
-                                  "skip_reason": note, "notified": False})
-                    save_sync_state(state)
-                return "conflict-failed", note
-            resolution = f"Hermes resolved {len(conflicted)} conflict(s)"
+                # Salvage: a timeout/transport error does NOT mean the agent
+                # failed. Resolving N conflicts takes many minutes (observed:
+                # 17 files ≈ 16 min, 128 API calls), so the HTTP call can time
+                # out AFTER the agent finished resolving and committed. Only
+                # abort when the workdir still shows unresolved state.
+                salvaged, why_salvage = _sync_finish_merge(workdir)
+                if salvaged:
+                    BUFFER.append("      ♻️ agent call ended early but the merge is complete — salvaged")
+                    resolution = f"Hermes resolved {len(conflicted)} conflict(s); " \
+                                 f"agent call ended early ({snippet[:80]}) — merge salvaged"
+                else:
+                    _sync_git(["merge", "--abort"], workdir, 60)
+                    note = f"conflict resolution failed — {snippet[:200]}"
+                    if not dry:
+                        entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                                      "skip_reason": note, "notified": False})
+                        save_sync_state(state)
+                    return "conflict-failed", note
+                done, why = True, "salvaged"
+            else:
+                done, why = _sync_finish_merge(workdir)
+                if not done:
+                    _sync_git(["merge", "--abort"], workdir, 60)
+                    note = f"conflict resolution incomplete — {why}"
+                    if not dry:
+                        entry.update({"last_sync_ts": time.time(), "last_attempt_sha": upstream_sha,
+                                      "skip_reason": note, "notified": False})
+                        save_sync_state(state)
+                    return "conflict-failed", note
+                resolution = f"Hermes resolved {len(conflicted)} conflict(s)"
         else:
             resolution = "clean merge"
             if cfg.get("ai_fix_after_merge", True):

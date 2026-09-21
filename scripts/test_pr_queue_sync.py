@@ -29,6 +29,7 @@ def load_worker():
 
 
 W = load_worker()
+_real_sync_finish_merge = W._sync_finish_merge
 
 PASSED = []
 FAILED = []
@@ -172,6 +173,13 @@ def _install_git_fake(merge_code=0, unmerged=None):
 
     W._sync_git = fake_git
     W._sync_unmerged_files = lambda workdir: list(unmerged or [])
+    # Reset the marker guard too: tests that stub it out must not leak into the
+    # next test (a leftover stub silently disabled the commit guard).
+    W._sync_has_conflict_markers = lambda workdir: []
+    # Reset _sync_finish_merge to the real implementation. Test 4 stubs it with
+    # a fake that always succeeds — a leaked copy turns a FAILED resolution
+    # (test 5, 15b) into a bogus salvage and hides the skip/abort behavior.
+    W._sync_finish_merge = _real_sync_finish_merge
     return state
 
 
@@ -256,6 +264,10 @@ def test_conflict_resolved(tmpdir):
 
     W._run_claude_sync = fake_claude
     finished = {"n": 0}
+    # _install_git_fake defaults unmerged=[]; test 4's fake_claude flips it to []
+    # mid-run — reset after the test so the leak does not poison test 5.
+    # (test 5 deliberately runs a FAILED resolution and must see the merge
+    #  still in conflict, not a bogus salvage.)
 
     def fake_finish(workdir):
         finished["n"] += 1
@@ -268,6 +280,8 @@ def test_conflict_resolved(tmpdir):
     check("conflict runner used", labels == ["hermes_sync_conflicts"], str(labels))
     check("merge completed once", finished["n"] == 1, str(finished))
     check("resolution noted in detail", "resolved 2 conflict" in detail, detail)
+    # Reset the fakes: fake_finish + the unmerged flip leak into test 5.
+    _install_git_fake()
 
 
 def test_conflict_failed_skips_and_dedupes(tmpdir):
@@ -540,6 +554,119 @@ def test_hermes_api_client(tmpdir):
         W.API_SERVER_URL = "http://127.0.0.1:8642/v1"
 
 
+# ── 15. salvage + marker guard ────────────────────────────────────────────
+def test_session_header_sent(tmpdir):
+    """X-Hermes-Session-Id must be sent so each fork gets a fresh transcript."""
+    print("17. X-Hermes-Session-Id is sent per fork")
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "done"}}]}
+
+    import httpx as _httpx
+    import sys as _sys
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, headers, json):
+            captured["headers"] = headers
+            captured["url"] = url
+            return FakeResp()
+
+    _sys.modules["httpx"] = type("H", (), {"Client": FakeClient})
+    ok, snippet = W._hermes_api_post("resolve", pathlib.Path(tmpdir), session_id="sync_x_y")
+    check("session header sent", captured["headers"].get("X-Hermes-Session-Id") == "sync_x_y",
+          str(captured.get("headers")))
+    # Without session_id the header must be absent.
+    captured.clear()
+    ok2, _ = W._hermes_api_post("x", pathlib.Path(tmpdir), session_id=None)
+    check("session header absent when not passed",
+          "X-Hermes-Session-Id" not in captured["headers"], str(captured.get("headers")))
+    _sys.modules["httpx"] = _httpx
+
+
+# ── 15. salvage + marker guard ────────────────────────────────────────────
+def test_salvage_on_agent_timeout(tmpdir):
+    """A timed-out agent call must NOT throw away a merge the agent already
+    finished — resolving many conflicts legitimately exceeds the HTTP timeout."""
+    print("15. salvage a completed merge after an agent timeout")
+    make_state_file(tmpdir)
+    state = {}
+    gitstate = _install_git_fake(merge_code=1, unmerged=[])  # agent resolved everything
+    labels = []
+
+    # The merge reports conflicts (so the worker enters the conflict path), but
+    # by the time the agent call ends the agent HAS resolved everything — the
+    # listing flips to empty when the fake runner is invoked.
+    resolved = {"done": False}
+
+    def fake_runner(workdir, prompt, label, fork, dry=False):
+        labels.append(label)
+        resolved["done"] = True          # agent finished the work…
+        return False, "[INFRA] Hermes API server timed out after 2700s"  # …but the HTTP call timed out
+
+    W._run_claude_sync = fake_runner
+    W._sync_unmerged_files = lambda workdir: [] if resolved["done"] else ["src/tools.ts"]
+    W._sync_has_conflict_markers = lambda workdir: []
+    pushes = []
+    W._push_ref = lambda workdir, fork, source, dest, app_token, force=False: (
+        pushes.append(dest), (True, "pat push ok", False))[1]
+
+    res, detail = W.sync_fork_repo("tok", "asepharyana/shiro-neko", "zakirkun/shiro-neko",
+                                   "main", "main", "up1", 4, 26, state, W.sync_config("x"))
+    check("timeout after a finished merge is salvaged, not failed",
+          res == "synced", f"{res} {detail}")
+    check("salvage still pushes", pushes and pushes[0] == "refs/heads/main", str(pushes))
+    check("salvage note mentions the salvage", "salvag" in detail.lower(), detail)
+
+    # …but a genuinely unfinished merge still fails and aborts.
+    print("15b. unfinished merge after a timeout still fails")
+    make_state_file(tmpdir)
+    state2 = {}
+    gitstate2 = _install_git_fake(merge_code=1, unmerged=["src/tools.ts"])
+    W._sync_unmerged_files = lambda workdir: ["src/tools.ts"]
+    W._sync_has_conflict_markers = lambda workdir: ["src/tools.ts"]
+    res2, detail2 = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26,
+                                     state2, W.sync_config("x"))
+    check("unfinished merge is still a failure", res2 == "conflict-failed", f"{res2} {detail2}")
+    check("unfinished merge is aborted", gitstate2["aborts"] >= 1, str(gitstate2))
+
+
+def test_finish_merge_blocks_leftover_markers(tmpdir):
+    """`git add`ed files that still carry markers must never be committed."""
+    print("16. _sync_finish_merge refuses files with leftover conflict markers")
+    make_state_file(tmpdir)
+    _install_git_fake()  # reset fakes; test 15b leaves a leaky spy behind
+    W._sync_unmerged_files = lambda workdir: []
+    W._sync_has_conflict_markers = lambda workdir: ["src/App.tsx"]
+    commits = []
+    real_git = W._sync_git
+
+    def git_spy(args, workdir, timeout):
+        if str(args[0]) == "commit":
+            commits.append(list(args))
+        return real_git(args, workdir, timeout)
+
+    W._sync_git = git_spy
+    ok, why = W._sync_finish_merge(pathlib.Path(tmpdir))
+    check("marker guard blocks the commit", (not ok) and "marker" in why, f"{ok} {why}")
+    check("no commit attempted", not commits, str(commits))
+    W._sync_git = real_git
+    W._sync_has_conflict_markers = lambda workdir: []
+    W._sync_unmerged_files = lambda workdir: []
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_upstream_status_parsing()
@@ -557,6 +684,9 @@ def main():
         test_push_error_classification()
         test_sync_config_override()
         test_hermes_api_client(pathlib.Path(tmpdir))
+        test_session_header_sent(tmpdir)
+        test_salvage_on_agent_timeout(tmpdir)
+        test_finish_merge_blocks_leftover_markers(tmpdir)
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
         print("failed: " + ", ".join(FAILED))
