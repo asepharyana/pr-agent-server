@@ -10,11 +10,45 @@ repos where the PR-Agent GitHub App is installed and drives the full lifecycle:
    of waiting on them forever
 3. **AI auto-fix** → runs Claude Code (`-p`) on the PR head for up to
    `AI_FIX_MAX_TURNS` turns, then pushes the fix
-4. **Safety analysis** → parses the review body for security/major-issue
+5. **Safety analysis** → parses the review body for security/major-issue
    blockers; score must be ≥ 6/10
-5. **CI gate** → waits for the required check to pass (closes stale dependabot
+6. **CI gate** → waits for the required check to pass (closes stale dependabot
    PRs stuck failing CI for > `STALE_CI_CLOSE_DAYS`)
-6. **Approve + merge**
+7. **Approve + merge**
+
+## Upstream Fork Auto-Sync
+
+Since 2026-09-21 the same 5-minute tick also syncs every repo in the App
+installation whose GitHub metadata says `fork: true`: new upstream (parent)
+commits are **merged** (never rebased) into the fork's default branch, gated by
+a per-repo interval (default **1 hour**; `UPSTREAM_SYNC` config block).
+
+- **Conflicted merge** → Claude Code resolves it (merge-reconciler rules: merge
+  hunks by hand, never wholesale `--ours/--theirs`, run the repo's own
+  typecheck/tests before committing). Claude never pushes — the harness does.
+- **Clean merge** → one Claude Code quality pass over the merged files,
+  committed as `fix: auto-fix code quality [skip ci]`.
+- **Protected default branch** → detect from the push result (GH006 /
+  required-status-check) and fall back to opening an `upstream-sync-*` PR that
+  the normal pipeline (review → AI fix → CI → approve → merge) finishes.
+- **CI safety** → after a direct push the worker verifies the fork's CI at our
+  merge commit; a red CI at OUR merge sha (still the tip, no human commits on
+  top) force-reverts to the pre-merge sha. Watch stops after 6 h.
+- **Push credentials** → owner PAT (gh CLI) first because the App lacks
+  `workflows:write`; App token is the fallback. Clones use the App token.
+- **State** → `/tmp/pr-queue-sync-state.json` (skip/interval/pending-verify),
+  workdirs `/tmp/pr-queue-sync-work/`.
+- **Notifications** → same `pr-agent-ops` Discord webhook: synced, PR opened,
+  reverted, skipped-once.
+
+Manual/dev:
+```bash
+python3 scripts/pr-queue-worker.py --sync-status
+python3 scripts/pr-queue-worker.py --sync-only asepharyana/shiro-neko --dry   # stops before push
+python3 scripts/pr-queue-worker.py --sync-only asepharyana/shiro-neko
+```
+Tests: `python3 scripts/test_pr_queue_sync.py` (46 assertions; no network —
+gh_api/git/Claude/push are monkeypatched).
 
 ## Deployment
 

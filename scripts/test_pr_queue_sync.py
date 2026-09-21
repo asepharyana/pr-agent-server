@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""
+Unit tests for the pr-queue-worker upstream fork auto-sync section.
+
+Run:  python3 scripts/test_pr_queue_sync.py
+
+No network, no GitHub token, no real git: `gh_api`, `_sync_git`, the Claude
+runner and the push helper are monkeypatched so the worker's *orchestration*
+(merge path, conflict path, protected-branch path, CI verify/revert, gating and
+state bookkeeping) is exercised deterministically. The git mechanics themselves
+are covered by the live E2E (`--sync-only <repo> --dry`), not here.
+"""
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+
+
+def load_worker():
+    spec = importlib.util.spec_from_file_location("pr_queue_worker", HERE / "pr-queue-worker.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+W = load_worker()
+
+PASSED = []
+FAILED = []
+
+
+def check(name, cond, detail=""):
+    (PASSED if cond else FAILED).append(name)
+    print(("  PASS  " if cond else "  FAIL  ") + name + ("" if cond else f"  ← {detail}"))
+
+
+def cp(args, code=0, out="", err=""):
+    return subprocess.CompletedProcess(args, code, out, err)
+
+
+def make_state_file(tmpdir):
+    """Point the worker's sync state at a temp file so tests never touch /tmp."""
+    W.SYNC_STATE_FILE = pathlib.Path(tmpdir) / "sync-state.json"
+    W.SYNC_TMP_BASE = pathlib.Path(tmpdir) / "sync-work"
+    W.sync_config  # noqa: B018 — keep the reference obvious for readers
+
+
+# ── 1. compare-API parsing ────────────────────────────────────────────────
+def test_upstream_status_parsing():
+    print("1. upstream_status parses ahead_by/behind_by/tip")
+    calls = []
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        calls.append(path)
+        return 200, {
+            "ahead_by": 4, "behind_by": 26,
+            "commits": [{"sha": "aaa"}, {"sha": "bbb"}, {"sha": "ccc"}, {"sha": "4eafc064"}],
+        }
+
+    W.gh_api = fake_gh
+    info = W.upstream_status("tok", "asepharyana/shiro-neko", "zakirkun/shiro-neko", "main", "main")
+    check("merge_count is ahead_by", info == (4, 26, "4eafc064"), str(info))
+    check("single compare call", len(calls) == 1, str(calls))
+    check("compare path uses owner:branch head (not owner/repo:branch)",
+          calls[0] == "/repos/asepharyana/shiro-neko/compare/main...zakirkun:main", str(calls))
+
+    def failing_gh(method, path, token=None, json_data=None, retries=3):
+        return 404, {"message": "Not Found"}
+
+    W.gh_api = failing_gh
+    check("unavailable compare → None", W.upstream_status("tok", "f", "p", "main", "main") is None)
+
+
+# ── 2. gating: same upstream tip / interval not due ───────────────────────
+def test_gating(tmpdir):
+    print("2. run_upstream_sync gating (interval + same upstream tip)")
+    make_state_file(tmpdir)
+    attempts = []
+
+    orig_list_forks = W.list_fork_repos
+    W.list_fork_repos = lambda: [("tok", "asepharyana/shiro-neko", "zakirkun/shiro-neko", "main")]
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if "/compare/" in path:
+            return 200, {"ahead_by": 4, "behind_by": 26, "commits": [{"sha": "up1"}]}
+        if path.startswith("/repos/asepharyana/shiro-neko/pulls"):
+            return 200, []
+        if path.endswith("/repos/asepharyana/shiro-neko"):
+            return 200, {"fork": True, "parent": {"full_name": "zakirkun/shiro-neko",
+                                                  "default_branch": "main"},
+                         "default_branch": "main"}
+        return 200, {}
+
+    W.gh_api = fake_gh
+    W.post_sync_discord = lambda *a, **k: True
+    orig_sync = W.sync_fork_repo
+
+    def fake_sync(token, fork, parent, local_branch, upstream_branch, upstream_sha,
+                  merge_count, divergence, state, cfg, dry=False):
+        # mirror what the real function records so the gating is exercised
+        attempts.append((upstream_sha, dry))
+        entry = W._sync_entry(state, fork)
+        entry["last_sync_ts"] = time.time()
+        entry["last_attempt_sha"] = upstream_sha
+        W.save_sync_state(state)
+        return "synced", "fake"
+
+    W.sync_fork_repo = fake_sync
+
+    lines = W.run_upstream_sync()
+    check("first tick attempts the sync", len(attempts) == 1, str(lines))
+
+    lines = W.run_upstream_sync()
+    check("second tick not attempted (same upstream tip)", len(attempts) == 1, str(lines))
+
+    # upstream moves, but the interval has not elapsed → still no attempt
+    def fake_gh2(method, path, token=None, json_data=None, retries=3):
+        if "/compare/" in path:
+            return 200, {"ahead_by": 5, "behind_by": 26, "commits": [{"sha": "up2"}]}
+        if path == "/repos/asepharyana/shiro-neko":
+            return 200, {"fork": True, "parent": {"full_name": "zakirkun/shiro-neko",
+                                                  "default_branch": "main"},
+                         "default_branch": "main"}
+        return 200, []
+
+    W.gh_api = fake_gh2
+    lines = W.run_upstream_sync()
+    check("interval gate blocks a fresh retry", len(attempts) == 1, str(lines) + str(attempts))
+
+    # backdate the last attempt → the new upstream tip is picked up
+    st = json.loads(W.SYNC_STATE_FILE.read_text())
+    st["asepharyana/shiro-neko"]["last_sync_ts"] = time.time() - 2 * 3600
+    W.SYNC_STATE_FILE.write_text(json.dumps(st))
+    W.run_upstream_sync()
+    check("new upstream tip attempts again once the interval elapsed",
+          [a[0] for a in attempts] == ["up1", "up2"], str(attempts))
+    W.sync_fork_repo = orig_sync  # later tests exercise the real implementation
+    W.list_fork_repos = orig_list_forks
+
+
+# ── 3. clean merge → push → pending_verify ────────────────────────────────
+def _install_git_fake(merge_code=0, unmerged=None):
+    """Fake `git` for sync_fork_repo: clone/config/rev-parse/fetch/merge."""
+    state = {"head": "pre" + "0" * 37, "merges": [], "aborts": 0}
+
+    def fake_git(args, cwd=None, timeout=180):
+        a = [str(x) for x in args]
+        if a[0] == "clone":
+            return cp(a)
+        if a[0] == "rev-parse":
+            return cp(a, 0, state["head"] + "\n")
+        if a[0] == "merge":
+            if "--abort" in a:
+                state["aborts"] += 1
+                return cp(a)
+            state["merges"].append(a)
+            if merge_code == 0:
+                state["head"] = "merge" + "1" * 36
+            return cp(a, merge_code, "", "CONFLICT" if merge_code else "")
+        if a[0] == "diff":
+            # the merge diff (used for the quality pass) lists files; the
+            # unmerged listing is served by the monkeypatched _sync_unmerged_files
+            return cp(a, 0, "src/a.ts\nsrc/b.ts\n")
+        if a[0] == "status":
+            return cp(a, 0, "")
+        return cp(a)
+
+    W._sync_git = fake_git
+    W._sync_unmerged_files = lambda workdir: list(unmerged or [])
+    return state
+
+
+def test_clean_merge_synced(tmpdir):
+    print("3. clean merge pushes and records pending_verify")
+    make_state_file(tmpdir)
+    state = {}
+    gitstate = _install_git_fake(merge_code=0, unmerged=[])
+    claude_calls = []
+    W._run_claude_sync = lambda workdir, prompt, label, fork: (claude_calls.append(label), (True, "ok"))[1]
+    W._sync_commit_if_dirty = lambda workdir, msg: False
+    pushes = []
+
+    def fake_push(workdir, fork, source, dest, app_token, force=False):
+        pushes.append((source, dest, force))
+        return True, "pat push ok", False
+
+    W._push_ref = fake_push
+    res, detail = W.sync_fork_repo("tok", "asepharyana/shiro-neko", "zakirkun/shiro-neko",
+                                  "main", "main", "up1", 4, 26, state, W.sync_config("x"))
+    entry = state["asepharyana/shiro-neko"]
+    check("status synced", res == "synced", f"{res} {detail}")
+    check("pushed to the local branch", pushes and pushes[0][1] == "refs/heads/main", str(pushes))
+    check("pending_verify records merge sha", entry["pending_verify"]["sha"] == gitstate["head"], str(entry))
+    check("pending_verify records pre_merge sha", entry["pending_verify"]["pre_merge_sha"].startswith("pre"), str(entry))
+    check("last_merged_upstream_sha recorded", entry["last_merged_upstream_sha"] == "up1", str(entry))
+    check("clean merge gets a quality pass", claude_calls == ["claude_sync_quality"], str(claude_calls))
+
+
+# ── 4. conflicted merge resolved by Claude ────────────────────────────────
+def test_conflict_resolved(tmpdir):
+    print("4. conflicted merge handed to Claude Code, then pushed")
+    make_state_file(tmpdir)
+    state = {}
+    _install_git_fake(merge_code=1, unmerged=["src/tools.ts", "src/ui/App.tsx"])
+    labels = []
+
+    def fake_claude(workdir, prompt, label, fork):
+        labels.append(label)
+        # after resolution the tree is clean → _sync_finish_merge must be called
+        W._sync_unmerged_files = lambda w: []
+        check("conflict prompt forbids --ours/--theirs",
+              "--ours/--theirs" in prompt and "rebase" in prompt)
+        return True, "resolved"
+
+    W._run_claude_sync = fake_claude
+    finished = {"n": 0}
+
+    def fake_finish(workdir):
+        finished["n"] += 1
+        return True, ""
+
+    W._sync_finish_merge = fake_finish
+    W._push_ref = lambda *a, **k: (True, "pat push ok", False)
+    res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state, W.sync_config("x"))
+    check("status synced", res == "synced", f"{res} {detail}")
+    check("conflict runner used", labels == ["claude_sync_conflicts"], str(labels))
+    check("merge completed once", finished["n"] == 1, str(finished))
+    check("resolution noted in detail", "resolved 2 conflict" in detail, detail)
+
+
+def test_conflict_failed_skips_and_dedupes(tmpdir):
+    print("5. failed conflict resolution → skip once, no retry at same upstream tip")
+    make_state_file(tmpdir)
+    state = {}
+    _install_git_fake(merge_code=1, unmerged=["src/tools.ts"])
+    W._run_claude_sync = lambda *a, **k: (False, "[INFRA] Claude Code timed out")
+    W._push_ref = lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not push after failed resolution"))
+    res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state, W.sync_config("x"))
+    entry = state["f/x"]
+    check("status conflict-failed", res == "conflict-failed", f"{res} {detail}")
+    check("upstream tip recorded as attempted", entry["last_attempt_sha"] == "up1", str(entry))
+    check("skip reason recorded", "timed out" in entry.get("skip_reason", ""), str(entry))
+    check("pending_verify not set", not entry.get("pending_verify"), str(entry))
+
+
+# ── 6. protected branch → PR path ─────────────────────────────────────────
+def test_protected_branch_opens_pr(tmpdir):
+    print("6. protected branch falls back to an upstream-sync PR")
+    make_state_file(tmpdir)
+    state = {}
+    _install_git_fake(merge_code=0, unmerged=[])
+    W._run_claude_sync = lambda *a, **k: (True, "ok")
+    W._sync_commit_if_dirty = lambda *a, **k: False
+    pushes = []
+
+    def fake_push(workdir, fork, source, dest, app_token, force=False):
+        pushes.append(dest)
+        if dest.endswith("refs/heads/main"):
+            return False, "pat: remote: error: GH006 protected branch", True
+        return True, "pat push ok", False
+
+    W._push_ref = fake_push
+    W.open_sync_pr = lambda *a, **k: 42
+    res, detail = W.sync_fork_repo("tok", "f/x", "up/x", "main", "main", "up1", 4, 26, state, W.sync_config("x"))
+    check("status pr-opened", res == "pr-opened", f"{res} {detail}")
+    check("direct push attempted first", pushes and pushes[0] == "refs/heads/main", str(pushes))
+    check("no pending_verify on the PR path", not state["f/x"].get("pending_verify"), str(state["f/x"]))
+
+
+# ── 7. CI verify / auto-revert ────────────────────────────────────────────
+def test_verify_green_clears(tmpdir):
+    print("7. verify_pending_syncs: green CI clears the watch")
+    make_state_file(tmpdir)
+    state = {"f/x": {"pending_verify": {"sha": "abc", "pre_merge_sha": "pre", "branch": "main",
+                                       "pushed_at": time.time()}}}
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if "/commits/main" in path:
+            return 200, [{"sha": "abc"}]
+        if path.endswith("/check-runs"):
+            return 200, {"check_runs": [{"name": "build", "status": "completed", "conclusion": "success"}]}
+        return 200, {}
+
+    W.gh_api = fake_gh
+    reverted = []
+    W._sync_revert_merge = lambda *a, **k: (reverted.append(a), (True, "reverted"))[1]
+    lines = W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("green verifies", any("verified green" in l for l in lines), str(lines))
+    check("watch cleared", state["f/x"]["pending_verify"] is None, str(state))
+    check("no revert on green", not reverted, str(reverted))
+
+
+def test_verify_red_reverts(tmpdir):
+    print("8. verify_pending_syncs: red CI at our merge sha reverts it")
+    make_state_file(tmpdir)
+    state = {"f/x": {"pending_verify": {"sha": "abc", "pre_merge_sha": "pre", "branch": "main",
+                                       "pushed_at": time.time()}}}
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if "/commits/main" in path:
+            return 200, [{"sha": "abc"}]
+        if path.endswith("/check-runs"):
+            return 200, {"check_runs": [{"name": "build", "status": "completed", "conclusion": "failure"}]}
+        return 200, {}
+
+    W.gh_api = fake_gh
+    reverted = []
+
+    def fake_revert(token, fork, branch, pre_merge_sha, reason):
+        reverted.append((fork, branch, pre_merge_sha, reason))
+        return True, "reverted main to pre"
+
+    W._sync_revert_merge = fake_revert
+    W.post_sync_discord = lambda *a, **k: True
+    lines = W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("revert invoked with the pre-merge sha",
+          reverted and reverted[0][2] == "pre" and reverted[0][1] == "main", str(reverted))
+    check("revert reported", any("reverted" in l for l in lines), str(lines))
+    check("watch cleared after revert", state["f/x"]["pending_verify"] is None, str(state))
+
+
+def test_verify_never_reverts_foreign_commits(tmpdir):
+    print("9. verify_pending_syncs: never reverts when someone pushed on top")
+    make_state_file(tmpdir)
+    state = {"f/x": {"pending_verify": {"sha": "abc", "pre_merge_sha": "pre", "branch": "main",
+                                       "pushed_at": time.time()}}}
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if "/commits/main" in path:
+            return 200, [{"sha": "humancommit"}]
+        if path.endswith("/check-runs"):
+            return 200, {"check_runs": [{"name": "build", "status": "completed", "conclusion": "failure"}]}
+        return 200, {}
+
+    W.gh_api = fake_gh
+    reverted = []
+    W._sync_revert_merge = lambda *a, **k: (reverted.append(a), (True, "x"))[1]
+    lines = W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("no revert when the tip moved", not reverted, str(reverted))
+    check("tip change reported", any("moved past our merge" in l for l in lines), str(lines))
+    check("watch cleared", state["f/x"]["pending_verify"] is None, str(state))
+
+
+def test_verify_waits_for_running_ci(tmpdir):
+    print("10. verify_pending_syncs: waits while checks run, respects no-CI grace")
+    make_state_file(tmpdir)
+    state = {"f/x": {"pending_verify": {"sha": "abc", "pre_merge_sha": "pre", "branch": "main",
+                                       "pushed_at": time.time()}}}
+
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if "/commits/main" in path:
+            return 200, [{"sha": "abc"}]
+        if path.endswith("/check-runs"):
+            return 200, {"check_runs": [{"name": "build", "status": "in_progress"}]}
+        return 200, {}
+
+    W.gh_api = fake_gh
+    W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("running CI keeps the watch", state["f/x"]["pending_verify"] is not None, str(state))
+
+    # no checks at all and young → still pending (check-runs lag)
+    def fake_gh_none(method, path, token=None, json_data=None, retries=3):
+        if "/commits/main" in path:
+            return 200, [{"sha": "abc"}]
+        return 200, {"check_runs": []}
+
+    W.gh_api = fake_gh_none
+    W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("fresh no-CI merge stays pending", state["f/x"]["pending_verify"] is not None, str(state))
+
+    # old + no CI → stop watching
+    state["f/x"]["pending_verify"]["pushed_at"] = time.time() - 3600
+    W.verify_pending_syncs(state, {"f/x": "tok"})
+    check("stale no-CI merge stops the watch", state["f/x"]["pending_verify"] is None, str(state))
+
+
+# ── 11. fork discovery ────────────────────────────────────────────────────
+def test_list_fork_repos():
+    print("11. list_fork_repos returns only forks with a resolvable parent")
+    def fake_gh(method, path, token=None, json_data=None, retries=3):
+        if path == "/app/installations":
+            return 200, [{"id": 1}]
+        if path.startswith("/installation/repositories"):
+            return 200, {"repositories": [
+                {"full_name": "o/plain-repo", "fork": False},
+                {"full_name": "o/fork-a", "fork": True},
+                {"full_name": "o/fork-b", "fork": True},
+            ]}
+        if path == "/repos/o/fork-a":
+            return 200, {"fork": True, "default_branch": "main", "parent": {"full_name": "up/a"}}
+        if path == "/repos/o/fork-b":
+            return 200, {"fork": True, "default_branch": "main"}  # parent stripped
+        return 404, {}
+
+    W.gh_api = fake_gh
+    W.get_installation_token = lambda inst: "tok"
+    forks = W.list_fork_repos()
+    check("only the resolvable fork returned", forks == [("tok", "o/fork-a", "up/a", "main")], str(forks))
+
+
+# ── 12. push-error classification ─────────────────────────────────────────
+def test_push_error_classification():
+    print("12. push error classification")
+    check("GH006 → protected", W._is_protected_push_error(
+        "remote: error: GH006: Protected branch update failed for refs/heads/main."))
+    check("required status checks → protected", W._is_protected_push_error(
+        "remote: error: Required status check \"ci\" is expected."))
+    check("workflows permission detected", W._is_workflow_push_error(
+        "! [remote rejected] main -> main (refusing to allow a GitHub App to create or update workflow `.github/workflows/ci.yml` without `workflows` permission)"))
+    check("plain rejected push is not 'protected'", not W._is_protected_push_error(
+        "fatal: could not read Username for 'https://github.com'"))
+
+
+# ── 13. per-repo config override ──────────────────────────────────────────
+def test_sync_config_override():
+    print("13. per-repo config override merges over defaults")
+    W.UPSTREAM_SYNC["repos"] = {"o/fork": {"interval_h": 6, "verify_ci": False}}
+    cfg = W.sync_config("o/fork")
+    check("override applied", cfg["interval_h"] == 6 and cfg["verify_ci"] is False, str(cfg))
+    check("defaults preserved", cfg["resolve_conflicts"] is True, str(cfg))
+    check("repos key not leaked", "repos" not in cfg, str(cfg))
+    W.UPSTREAM_SYNC["repos"] = {}
+
+
+def main():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_upstream_status_parsing()
+        test_gating(tmpdir)
+        test_clean_merge_synced(tmpdir)
+        test_conflict_resolved(tmpdir)
+        test_conflict_failed_skips_and_dedupes(tmpdir)
+        test_protected_branch_opens_pr(tmpdir)
+        test_verify_green_clears(tmpdir)
+        test_verify_red_reverts(tmpdir)
+        test_verify_never_reverts_foreign_commits(tmpdir)
+        test_verify_waits_for_running_ci(tmpdir)
+        test_list_fork_repos()
+        test_push_error_classification()
+        test_sync_config_override()
+    print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
+    if FAILED:
+        print("failed: " + ", ".join(FAILED))
+    return 1 if FAILED else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
