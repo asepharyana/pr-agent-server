@@ -17,8 +17,30 @@ export function loadSecrets(opts?: {
   webhookSecret?: string;
 }): Secrets {
   const appDir = opts?.appDir ?? "/var/lib/pr-agent-server";
-  const privateKey = readFileSync(join(appDir, "private-key.pem"), "utf8");
-  const omniKey = readFileSync(join(appDir, "omniroute_key"), "utf8").trim();
+  const candidates = [
+    join(appDir, "private-key.pem"),
+    join(process.env.HOME ?? "/home/code", ".hermes", "keys", "pr-agent-key.pem"),
+  ];
+  let privateKey = "";
+  for (const p of candidates) {
+    try {
+      privateKey = readFileSync(p, "utf8");
+      break;
+    } catch {
+      // try next
+    }
+  }
+  if (!privateKey) throw new Error(`private-key.pem not found in ${candidates.join(", ")}`);
+  let omniKey = "";
+  for (const p of [join(appDir, "omniroute_key"), join(process.env.HOME ?? "/home/code", ".hermes", "omniroute_key")]) {
+    try {
+      omniKey = readFileSync(p, "utf8").trim();
+      if (omniKey) break;
+    } catch {
+      // try next
+    }
+  }
+  if (!omniKey) throw new Error(`omniroute_key not found in ${appDir}`);
   return {
     appId: opts?.appId ?? 4319749,
     privateKey,

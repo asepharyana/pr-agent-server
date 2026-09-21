@@ -180,7 +180,7 @@ function renderTicketCompliance(
       const compliance = tObj["overall_compliance_level"] || tObj["ticket_compliance_level"] || "";
       const explanation = tObj["explanation"] || tObj["why_compliance_level_partial"] || "";
       out += `<tr><td>${emoji}&nbsp;<strong>Ticket compliance check</strong><br><br>\n`;
-      if (url && url.trim()) {
+      if (url && url.trim() && !/^(n\/?a|none|no ticket|no\b)/i.test(url.trim()) && /^https?:\/\//i.test(url.trim())) {
         const id = url.trim().split("/").filter(Boolean).pop() || url.trim();
         out += `**[${id}](<${url.trim()}>) — ${compliance || "Partially"}**\n\n`;
       } else {

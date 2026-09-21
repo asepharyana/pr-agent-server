@@ -3,6 +3,8 @@
 // review pipeline, with env-var overrides (same names as the Python server used,
 // minus the Dynaconf prefix dance — we read plain env vars).
 
+import { readFileSync } from "node:fs";
+
 export interface Config {
   // model routing
   model: string;
@@ -84,11 +86,20 @@ export function loadConfig(): Config {
 
   // Key resolution: the Python server used ANTHROPIC_API_KEY = omni key for
   // 9router. Prefer OMNIROUTE_API_KEY (verified live), fall back to
-  // ANTHROPIC_API_KEY then OPENAI_API_KEY.
+  // ANTHROPIC_API_KEY then OPENAI_API_KEY, then the on-disk omni key file
+  // (same source of truth as run_server.py: /var/lib/pr-agent-server/omniroute_key).
+  const appDir = env.PR_AGENT_APP_DIR || "/var/lib/pr-agent-server";
+  let fileKey = "";
+  try {
+    fileKey = readFileSync(`${appDir}/omniroute_key`, "utf8").trim();
+  } catch {
+    // fall through
+  }
   const apiKey =
     env.OMNIROUTE_API_KEY ||
     env.ANTHROPIC_API_KEY ||
     env.OPENAI_API_KEY ||
+    fileKey ||
     "";
   const baseUrl =
     env.OPENAI_API_BASE || "https://9router.asepharyana.my.id/v1";

@@ -75,12 +75,13 @@ export async function handleWebhook(
   }
 
   // Fire and forget: dispatch review; respond fast (GitHub expects < 10s)
-  void runReview(env.cfg, owner, repo, pr.number, env.privateKeyPem)
-    .then(async (result) => {
-      if (env.analyticsDir) {
-        try {
-          const fsMod = await import("node:fs");
-          fsMod.appendFileSync(
+    void runReview(env.cfg, owner, repo, pr.number, env.privateKeyPem)
+      .then(async (result) => {
+        console.log(`[webhook] review done for ${owner}/${repo}#${pr.number}: ${result.status}, model ${result.model}, md ${result.markdown.length} chars`);
+        if (env.analyticsDir) {
+          try {
+            const fsMod = await import("node:fs");
+            fsMod.appendFileSync(
             `${env.analyticsDir}/pr-agent.bun.jsonl`,
             JSON.stringify({
               time: new Date().toISOString(),
@@ -111,6 +112,7 @@ export async function handleWebhook(
       }
     })
     .catch((e) => {
+      console.error(`[webhook] review FAILED for ${owner}/${repo}#${pr.number}:`, e instanceof Error ? e.stack ?? e.message : e);
       if (env.discordAlertWebhookUrl) {
         void sendDiscord(
           env.discordAlertWebhookUrl,
@@ -134,7 +136,7 @@ async function getHttpx() {
   return fetch;
 }
 
-async function sendDiscord(webhook: string, content: string, title: string): Promise<void> {
+async function sendDiscord(webhook: string, content: string, title?: string): Promise<void> {
   try {
     await fetch(webhook, {
       method: "POST",
@@ -153,9 +155,12 @@ async function sendDiscord(webhook: string, content: string, title: string): Pro
 
 export function startServer(env?: Partial<WebhookEnv>) {
   const cfg = env?.cfg ?? loadConfig();
-  const privateKeyPem =
-    env?.privateKeyPem ??
-    readPrivateKey(process.env.PRIVATE_KEY_PATH || "/opt/pr-agent-server/private-key.pem");
+  const appDir = process.env.PR_AGENT_APP_DIR || "/var/lib/pr-agent-server";
+    const privateKeyPem =
+      env?.privateKeyPem ??
+      (readPrivateKey(process.env.PRIVATE_KEY_PATH || `${appDir}/private-key.pem`) ||
+        readPrivateKey(`${appDir}/private-key.pem`) ||
+        "");
   const webhookSecret =
     env?.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET ?? "";
   const analyticsDir =
@@ -181,6 +186,40 @@ export function startServer(env?: Partial<WebhookEnv>) {
       if (url.pathname === "/health") {
         return Response.json({ status: "ok", model: cfg.model });
       }
+      if (url.pathname === "/setup/callback") {
+        const code = url.searchParams.get("code") || "";
+        if (code) {
+          try {
+            const resp = await fetch(
+              `https://api.github.com/app-manifests/${code}/conversions`,
+              { headers: { Accept: "application/vnd.github.v3+json" } },
+            );
+            if (resp.status === 201) {
+              const data = (await resp.json()) as {
+                id?: number; pem?: string; webhook_secret?: string; slug?: string;
+              };
+              const creds = {
+                app_id: data.id,
+                pem: data.pem,
+                webhook_secret: data.webhook_secret,
+                slug: data.slug,
+              };
+              await Bun.write(
+                `${appDir}/credentials_callback.json`,
+                JSON.stringify(creds, null, 2),
+              );
+              return Response.json({
+                status: "success",
+                app_id: creds.app_id,
+                slug: creds.slug,
+              });
+            }
+          } catch (e) {
+            console.error("[callback] conversion failed:", e);
+          }
+        }
+        return Response.json({ status: "ok", message: "callback received" });
+      }
       if (url.pathname === "/api/v1/github_webhooks" || url.pathname === "/") {
         if (req.method !== "POST") {
           return Response.json({ ok: true });
@@ -190,6 +229,33 @@ export function startServer(env?: Partial<WebhookEnv>) {
         const event = req.headers.get("x-github-event") || "";
         const result = await handleWebhook(fullEnv, body, sig, event);
         return Response.json(result.body, { status: result.status });
+      }
+      if (url.pathname === "/api/v1/notify_review") {
+        if (req.method !== "POST") {
+          return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+        }
+        try {
+          const body = (await req.json()) as {
+            repo?: string; pr?: string | number; status?: string;
+            summary?: string; score?: string; url?: string;
+          };
+          const repo = body.repo || "";
+          const prNum = String(body.pr ?? "");
+          const status = body.status || "done";
+          const summary = String(body.summary || "");
+          const score = String(body.score || "");
+          const url = String(body.url || "");
+          const content = `Review ${status} for ${repo}#${prNum}` +
+            (score ? ` — score ${score}` : "") + `\n${summary}\n${url}`;
+          if (fullEnv.discordWebhookUrl) {
+            void sendDiscord(fullEnv.discordWebhookUrl, content).catch(() => {});
+          } else {
+            console.log(`[notify] ${repo}#${prNum} ${status} ${score} ${url}`);
+          }
+          return Response.json({ ok: true });
+        } catch (e) {
+          return Response.json({ ok: false, error: String(e) }, { status: 400 });
+        }
       }
       if (url.pathname === "/api/metrics") {
         return new Response(generateMetrics(), {
@@ -224,4 +290,9 @@ function generateMetrics(): string {
     "# HELP pr_agent_requests_by_command PR-Agent events by command",
     "# TYPE pr_agent_requests_by_command counter",
   ].join("\n") + "\n";
+}
+
+// Entry point: `bun src/index.ts` (and the compiled binary) starts the server.
+if (import.meta.main) {
+  startServer();
 }

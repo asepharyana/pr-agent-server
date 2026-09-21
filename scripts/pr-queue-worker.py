@@ -421,7 +421,7 @@ def merge_pr(token, repo_full, pr_num, sha):
 def post_discord_notification(repo_full, pr_num, status, summary="", score="", url=""):
     """Fire-and-forget Discord notification via pr-agent server internal endpoint."""
     import httpx
-    notify_url = os.environ.get("PR_AGENT_NOTIFY_URL", "http://127.0.0.1:4002/api/v1/notify_review")
+    notify_url = os.environ.get("PR_AGENT_NOTIFY_URL", "http://127.0.0.1:4023/api/v1/notify_review")
     try:
         with httpx.Client(timeout=5) as client:
             client.post(notify_url, json={

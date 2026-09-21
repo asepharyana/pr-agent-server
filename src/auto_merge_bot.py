@@ -76,7 +76,7 @@ def get_pr_reviews(token: str, repo_full: str, pr_number: int) -> list:
 def post_discord_notification(repo_full: str, pr_number: int, status: str, summary: str = "", score: str = "", url: str = ""):
     """Fire-and-forget Discord notification via the server's internal endpoint."""
     import httpx
-    notify_url = os.environ.get("PR_AGENT_NOTIFY_URL", "http://127.0.0.1:4002/api/v1/notify_review")
+    notify_url = os.environ.get("PR_AGENT_NOTIFY_URL", "http://127.0.0.1:4023/api/v1/notify_review")
     try:
         with httpx.Client(timeout=5) as client:
             client.post(notify_url, json={
