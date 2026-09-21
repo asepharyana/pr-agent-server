@@ -3,6 +3,7 @@
 // REST calls the review pipeline needs. Rate-limit-aware retry.
 
 import { createAppAuth, type AppAuthentication } from "@octokit/auth-app";
+import { createHash } from "node:crypto";
 import { Octokit } from "@octokit/rest";
 import type { Config } from "./config";
 import { EditType, type FilePatchInfo } from "./diff";
@@ -343,6 +344,50 @@ export class GitHubProvider {
     await this.retry(() =>
       this.octokit.issues.addLabels({ owner, repo, issue_number: this.prNumber, labels: labelNames }),
     );
+  }
+
+  async getLabels(): Promise<string[]> {
+    const [owner, repo] = this.repo.split("/");
+    const { data } = await this.retry(() =>
+      this.octokit.issues.listLabelsOnIssue({ owner, repo, issue_number: this.prNumber, per_page: 100 }),
+    );
+    return data.map((l) => l.name);
+  }
+
+  /** Update the PR title/body (PATCH /pulls/{n}). Mirrors
+   *  git_provider.publish_description. */
+  async updateDescription(title: string | null, body: string): Promise<void> {
+    const [owner, repo] = this.repo.split("/");
+    await this.retry(() =>
+      this.octokit.pulls.update({
+        owner,
+        repo,
+        pull_number: this.prNumber,
+        ...(title !== null ? { title } : {}),
+        body,
+      }),
+    );
+  }
+
+  /** Link to the relevant line in the PR diff files view. Mirrors
+   *  pr_agent get_line_link: SHA-256 hex of the filename as the diff anchor,
+   *  /pull/{n}/files#diff-<sha>R<start>-R<end>. */
+  async getLineLink(
+    filename: string,
+    relevantLineStart = 1,
+    relevantLineEnd?: number,
+  ): Promise<string> {
+    const pr = await this.getPr();
+    const shaFile = createHash("sha256").update(filename, "utf8").digest("hex");
+    let anchor: string;
+    if (relevantLineStart === -1) {
+      anchor = `#diff-${shaFile}`;
+    } else if (relevantLineEnd && relevantLineEnd > relevantLineStart) {
+      anchor = `#diff-${shaFile}R${relevantLineStart}-R${relevantLineEnd}`;
+    } else {
+      anchor = `#diff-${shaFile}R${relevantLineStart}`;
+    }
+    return `https://github.com/${this.repo}/pull/${this.prNumber}/files${anchor}`;
   }
 
   async getPrUrl(): Promise<string> {

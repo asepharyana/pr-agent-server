@@ -78,6 +78,17 @@ export async function handleWebhook(
     void runReview(env.cfg, owner, repo, pr.number, env.privateKeyPem)
       .then(async (result) => {
         console.log(`[webhook] review done for ${owner}/${repo}#${pr.number}: ${result.status}, model ${result.model}, md ${result.markdown.length} chars`);
+        logReviewEvent(env.analyticsDir, {
+          message: result.status === "success" ? "Generated code suggestions" : `Failed to generate ${result.status}`,
+          extra: {
+            command: "review",
+            pr_url: `https://api.github.com/repos/${owner}/${repo}/pulls/${pr.number}`,
+            model: result.model,
+            model_request: result.model,
+            pr_url_short: `${owner}/${repo}#${pr.number}`,
+            error: result.status === "success" ? "" : result.status,
+          },
+        });
         if (env.analyticsDir) {
           try {
             const fsMod = await import("node:fs");
@@ -263,7 +274,31 @@ export function startServer(env?: Partial<WebhookEnv>) {
         });
       }
       if (url.pathname === "/api/analytics") {
-        return Response.json({ total_events: 0, recent: [], failures: [] });
+        const records = readAnalyticsLogs(fullEnv.analyticsDir, 5);
+        const recent = [];
+        for (const rec of records.slice(-30)) {
+          const extra = rec._extra ?? {};
+          recent.push({
+            time: rec.time?.repr ?? "",
+            command: extra.command ?? "",
+            message: rec.message ?? "",
+            pr_url: extra.pr_url ?? "",
+            model: extra.model ?? "",
+            level: rec.level?.name ?? "",
+          });
+        }
+        const failures = records.filter((r) => (r.message ?? "").includes("Failed to generate"));
+        return Response.json({
+          total_events: records.length,
+          failure_count: failures.length,
+          recent,
+          failures: failures.slice(-20).map((r) => ({
+            time: r.time?.repr ?? "",
+            command: r._extra?.command ?? "",
+            model: r._extra?.model ?? "",
+            message: (r.message ?? "").slice(0, 200),
+          })),
+        });
       }
       return Response.json({ error: "not found" }, { status: 404 });
     },
@@ -281,15 +316,134 @@ function readPrivateKey(path: string): string {
   }
 }
 
+interface AnalyticsRecord {
+  text?: string;
+  record?: AnalyticsRecord;
+  message?: string;
+  time?: { repr?: string; timestamp?: number };
+  level?: { name?: string };
+  extra?: Record<string, unknown>;
+  _extra?: Record<string, unknown>;
+  _file?: string;
+}
+
+/** Port of run_server._read_analytics_logs: parse pr-agent.*.log JSON lines
+ *  (the legacy Python analytics format) so metrics/analytics endpoints keep
+ *  working across the cut-over. Bun also writes its own events in the same
+ *  shape (see logReviewEvent). */
+export function readAnalyticsLogs(dir: string, maxFiles = 5): AnalyticsRecord[] {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  let files: string[] = [];
+  try {
+    // sort by mtime DESC so the newest log files win (pid-based filenames are
+    // not naturally ordered — e.g. 616504 vs 806320)
+    files = fs
+      .readdirSync(dir)
+      .filter((f: string) => f.endsWith(".log"))
+      .sort((a: string, b: string) => {
+        try {
+          return fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs;
+        } catch {
+          return 0;
+        }
+      });
+  } catch {
+    return [];
+  }
+  const records: AnalyticsRecord[] = [];
+  for (const f of files.slice(0, maxFiles)) {
+    try {
+      const content = fs.readFileSync(path.join(dir, f), "utf8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          let rec = JSON.parse(trimmed) as AnalyticsRecord;
+          if (rec.record && typeof rec.record === "object") {
+            rec = rec.record as AnalyticsRecord;
+          }
+          const extra = (rec.extra ?? {}) as Record<string, unknown>;
+          if (extra.artifact && typeof extra.artifact === "object") {
+            Object.assign(extra, extra.artifact);
+            delete extra.artifact;
+          }
+          rec._extra = extra;
+          rec._file = f;
+          records.push(rec);
+        } catch {
+          // skip malformed lines
+        }
+      }
+    } catch {
+      // skip unreadable files
+    }
+  }
+  return records;
+}
+
+/** Append an analytics event in the legacy pr-agent JSONL shape so external
+ *  dashboards that parse pr-agent.*.log keep working. */
+function logReviewEvent(dir: string, event: Record<string, unknown>): void {
+  if (!dir) return;
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const ts = new Date();
+    const rec = {
+      text: "",
+      record: {
+        time: { repr: ts.toISOString(), timestamp: ts.getTime() / 1000 },
+        level: { name: "INFO" },
+        message: event.message ?? "review done",
+        extra: event.extra ?? {},
+        _file: "",
+      },
+    };
+    const file = path.join(dir, `pr-agent.${process.pid}.log`);
+    fs.appendFileSync(file, JSON.stringify(rec) + "\n");
+  } catch {
+    // analytics must never break the review path
+  }
+}
+
 function generateMetrics(): string {
-  return [
+  const lines = [
     "# HELP pr_agent_requests_total Total PR-Agent analytics events",
     "# TYPE pr_agent_requests_total counter",
-    'pr_agent_requests_total{status="success"} 0',
-    'pr_agent_requests_total{status="failed"} 0',
-    "# HELP pr_agent_requests_by_command PR-Agent events by command",
-    "# TYPE pr_agent_requests_by_command counter",
-  ].join("\n") + "\n";
+  ];
+  const records = readAnalyticsLogs((process.env.PR_AGENT_ANALYTICS_DIR || "/var/lib/pr-agent-server/analytics").trim(), 5);
+  let failed = 0;
+  let success = 0;
+  const commandCounts: Record<string, number> = {};
+  const modelFailures: Record<string, number> = {};
+  for (const rec of records) {
+    const extra = rec._extra ?? {};
+    const cmd = (extra.command as string) ?? "unknown";
+    commandCounts[cmd] = (commandCounts[cmd] ?? 0) + 1;
+    const msg = rec.message ?? "";
+    if (msg.includes("Failed to generate") || (msg.toLowerCase().includes("error") && rec.level?.name === "WARNING")) {
+      failed++;
+      const model = (extra.model as string) ?? "unknown";
+      modelFailures[model] = (modelFailures[model] ?? 0) + 1;
+    } else {
+      success++;
+    }
+  }
+  lines.push(`pr_agent_requests_total{status="success"} ${success}`);
+  lines.push(`pr_agent_requests_total{status="failed"} ${failed}`);
+  lines.push("# HELP pr_agent_requests_by_command PR-Agent events by command");
+  lines.push("# TYPE pr_agent_requests_by_command counter");
+  for (const [cmd, cnt] of Object.entries(commandCounts).sort()) {
+    lines.push(`pr_agent_requests_by_command{command="${cmd}"} ${cnt}`);
+  }
+  lines.push("# HELP pr_agent_model_failures PR-Agent model failures by model");
+  lines.push("# TYPE pr_agent_model_failures counter");
+  for (const [model, cnt] of Object.entries(modelFailures).sort()) {
+    lines.push(`pr_agent_model_failures{model="${model}"} ${cnt}`);
+  }
+  return lines.join("\n") + "\n";
 }
 
 // Entry point: `bun src/index.ts` (and the compiled binary) starts the server.

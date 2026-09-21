@@ -3,6 +3,8 @@
 
 import { loadConfig } from "./config";
 import { runReview } from "./review";
+import { runDescribe } from "./describe";
+import { runImprove } from "./improve";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -14,7 +16,7 @@ async function main() {
 
   if (has("--help")) {
     console.log(
-      "Usage: bun src/cli.ts --repo owner/name --pr N [--private-key PATH] [--no-publish] [--review-all]",
+      "Usage: bun src/cli.ts --repo owner/name --pr N [--tool review|describe] [--private-key PATH] [--no-publish]",
     );
     return;
   }
@@ -27,14 +29,56 @@ async function main() {
   }
   const [owner, repo] = repoArg.split("/");
   const prNumber = Number(prArg);
+  const tool = getArg("--tool") || "review";
 
   const cfg = loadConfig();
   const keyPath = getArg("--private-key") || process.env.PRIVATE_KEY_PATH || "/opt/pr-agent-server/private-key.pem";
   const fs = await import("node:fs");
   const privateKey = fs.readFileSync(keyPath, "utf-8");
+  const publish = !has("--no-publish");
+
+  if (tool === "describe") {
+    const result = await runDescribe(cfg, owner, repo, prNumber, privateKey, {
+      publish,
+    });
+    console.log(JSON.stringify(
+      {
+        tool: "describe",
+        model: result.model,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        markdownLen: result.markdown.length,
+      },
+      null,
+      2,
+    ));
+    console.log("\n--- MARKDOWN ---\n");
+    console.log(result.markdown);
+    return;
+  }
+
+  if (tool === "improve") {
+    const result = await runImprove(cfg, owner, repo, prNumber, privateKey, {
+      publish,
+    });
+    console.log(JSON.stringify(
+      {
+        tool: "improve",
+        model: result.model,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        markdownLen: result.markdown.length,
+      },
+      null,
+      2,
+    ));
+    console.log("\n--- MARKDOWN ---\n");
+    console.log(result.markdown);
+    return;
+  }
 
   const result = await runReview(cfg, owner, repo, prNumber, privateKey, {
-    publish: !has("--no-publish"),
+    publish,
   });
 
   console.log(JSON.stringify(

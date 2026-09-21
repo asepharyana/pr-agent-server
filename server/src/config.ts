@@ -36,6 +36,12 @@ export interface Config {
   prDescription: {
     maxAiCalls: number;
     enableLargePrHandling: boolean;
+    enablePrType: boolean;
+    enablePrDescription: boolean;
+    enablePrDiagram: boolean;
+    publishDescriptionAsComment: boolean;
+    publishLabels: boolean;
+    finalUpdateMessage: boolean;
   };
   // git/diff
   patchExtraLinesBefore: number;
@@ -141,6 +147,17 @@ export function loadConfig(): Config {
       maxAiCalls: envInt("PR_AGENT_MAX_AI_CALLS", 4),
       enableLargePrHandling:
         (env.PR_AGENT_LARGE_PR_HANDLING ?? "true").toLowerCase() === "true",
+      enablePrType: (env.PR_AGENT_DESC_ENABLE_TYPE ?? "true").toLowerCase() === "true",
+      enablePrDescription:
+        (env.PR_AGENT_DESC_ENABLE_DESCRIPTION ?? "true").toLowerCase() === "true",
+      enablePrDiagram:
+        (env.PR_AGENT_DESC_ENABLE_DIAGRAM ?? "true").toLowerCase() === "true",
+      publishDescriptionAsComment:
+        (env.PR_AGENT_DESC_PUBLISH_AS_COMMENT ?? "false").toLowerCase() === "true",
+      publishLabels:
+        (env.PR_AGENT_DESC_PUBLISH_LABELS ?? "false").toLowerCase() === "true",
+      finalUpdateMessage:
+        (env.PR_AGENT_DESC_FINAL_UPDATE ?? "true").toLowerCase() === "true",
     },
     patchExtraLinesBefore: envInt("PR_AGENT_PATCH_EXTRA_BEFORE", 5),
     patchExtraLinesAfter: envInt("PR_AGENT_PATCH_EXTRA_AFTER", 1),
