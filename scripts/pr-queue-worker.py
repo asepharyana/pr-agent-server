@@ -1222,6 +1222,7 @@ def _hermes_api_post(prompt, workdir, timeout=SYNC_CLAUDE_TIMEOUT, label="hermes
         headers["X-Hermes-Session-Id"] = session_id
     body = {
         "model": "hermes-agent",
+        "provider": "custom:9router",
         "messages": [
             {"role": "system", "content": (
                 "You are an autonomous coding agent inside a git worktree. "
