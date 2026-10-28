@@ -7,6 +7,7 @@ import { GitHubProvider } from "../../infrastructure/github/index.ts"
 import { callWithFallback } from "../../infrastructure/llm/llm.ts"
 import { convertToMarkdownV2 } from "../core/markdown.ts"
 import { renderTemplate } from "../core/render.ts"
+import { isFormatRejection, REVIEW_FORMAT_REPAIR } from "../core/review-format.ts"
 import { countPromptTokens } from "../core/token.ts"
 import { loadYaml } from "../core/yaml.ts"
 import { clipTokens, getPrDiff } from "../diff/index.ts"
@@ -174,6 +175,11 @@ export async function runReview(
 		cfg,
 		validate: (content) =>
 			render(content) === null ? "failed to parse review response into markdown" : null,
+		// The models that fail here do not emit broken YAML, they emit PROSE —
+		// measured 0/10 with a `review:` body on the real prompt, and 10/10 once
+		// this correction was appended (2026-10-28, both Claude 5.5 ids). Re-sending
+		// the identical prompt reproduces the prose; naming the format fixes it.
+		repair: (complaint) => (isFormatRejection(complaint) ? REVIEW_FORMAT_REPAIR : null),
 	})
 
 	// Re-render the accepted body. `validate` guarantees this is non-null; the

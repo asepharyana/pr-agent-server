@@ -116,18 +116,40 @@ export async function callWithFallback(opts: {
 	 * across attempts is the RESPONSE, not just the connection.
 	 */
 	validate?: (content: string, model: string) => string | null
+	/**
+	 * Extra instruction appended to the user turn when a BODY was rejected but
+	 * the call itself succeeded — a format correction, not a transport retry.
+	 *
+	 * WHY THIS EXISTS. A rejected body was retried with the byte-identical
+	 * prompt, so a model that answered in prose had no reason to comply on the
+	 * second attempt: it had already complied, as far as it could tell. Measured
+	 * on 2026-10-28 against the real 8KB review prompt, `claude-opus-5-5` and
+	 * `claude-sonnet-5-5` replied in prose on 12 of 12 calls and never produced
+	 * the YAML body the prompt asks for, so every retry burned a paid call and
+	 * failed the same way. The review then never posted, and because the
+	 * webhook had already returned 2xx the worker saw only "accepted, no review"
+	 * and reported the PR as pending forever — the hang this parameter fixes.
+	 *
+	 * Returned text is appended AFTER the original user turn so the model keeps
+	 * the full task and gains only the correction.
+	 */
+	repair?: (complaint: string, attempt: number) => string | null
 }) {
 	const call = opts.call ?? chatCompletion
 	const retries = opts.retries ?? 2
 	let last: unknown
 	const rejected: string[] = []
 	for (const model of opts.models) {
+		// The correction for THIS model's rejections, applied to the next attempt.
+		// Held per model so a reason found on one model never leaks into another's
+		// prompt.
+		let repairText: string | null = null
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			try {
 				const r = await call({
 					model,
 					system: opts.system,
-					user: opts.user,
+					user: repairText ? `${opts.user}\n\n${repairText}` : opts.user,
 					temperature: opts.temperature,
 					cfg: opts.cfg,
 				})
@@ -143,9 +165,18 @@ export async function callWithFallback(opts: {
 						// fault: retrying the SAME model may well fix it (the outputs
 						// are non-deterministic), so it keeps its retries and only
 						// moves on once they are spent.
+						//
+						// `repair` improves those retries but does not gate them. When
+						// it supplies a correction the retry asks for the format that
+						// was missing; when it does not, the retry is unchanged and
+						// still a fair second sample — the same prompt that parsed on
+						// one run can parse on the next because the model is not
+						// deterministic. Refusing to retry would throw away that
+						// chance, which is the case `keeps its retries` pins.
 						rejected.push(`${model}: ${complaint}`)
 						last = new Error(complaint)
 						if (attempt === retries) break
+						repairText = opts.repair?.(complaint, attempt) ?? repairText
 						await new Promise((r2) => setTimeout(r2, 1000 * 2 ** attempt))
 						continue
 					}
