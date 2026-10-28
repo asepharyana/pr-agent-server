@@ -373,11 +373,72 @@ describe("case 1 — a PR with no review triggers one and stops for this tick", 
 		expect(merges(h.calls)).toBe(0)
 		expect(h.agentPosts).toEqual([])
 		expect(h.lines).toContain("   📡 No review → triggering PR-Agent...")
-		expect(h.lines).toContain("   ✅ PR-Agent triggered (HTTP 200)")
+		// The wording changed on 2026-10-28 and the change is the point. It used to
+		// read "PR-Agent triggered", which claimed a review had HAPPENED when the
+		// 200 only means the request was enqueued. That line printed every five
+		// minutes for hours while the reviewer was dying server-side with a 403
+		// and posting nothing — the queue's own report was the reason nobody
+		// noticed. The report now says what is actually true: accepted, awaiting.
+		expect(h.lines).toContain("   ✅ PR-Agent accepted the request (HTTP 200) — awaiting the review")
 		// Python `continue`s at line 1934 WITHOUT touching skipped_count, which the
 		// `toEqual` above already pins. An extra negative assertion here would be
 		// tautological: that conflict line is only reachable from the resolver,
 		// which needs a review to exist and this PR has none.
+	})
+
+	test("an accepted request with no review next tick is reported, not re-triggered", async () => {
+		// The 2026-10-28 failure, as a test: the trigger returns 200, but no review
+		// comment ever appears. Before the fix the second tick printed another
+		// green "triggered" line and fired yet another doomed request, so a broken
+		// reviewer looked identical to a healthy one from the report alone.
+		const h = harness({ prs: [makePr()] })
+		await processPr(h.deps, ctx) // tick 1: requests the review, records the request
+		const before = h.lines.length
+
+		const out = await processPr(h.deps, ctx) // tick 2: still no review comment
+		const second = h.lines.slice(before)
+
+		expect(second).toContain("   ⚠️  Review requested 1× at this SHA, no review after 0m")
+		expect(second.some((l) => l.includes("never posted a review"))).toBe(true)
+		// NOT re-fired yet: 0m have passed, and a review that is merely slow has
+		// not had its chance. Firing here would double-pay for it.
+		expect(second).not.toContain("   📡 No review → triggering PR-Agent...")
+		expect(out.triggered).toBe(false)
+		// Counted as skipped, so the queue's own summary admits the PR is waiting
+		// on something rather than silently doing nothing.
+		expect(out.skipped).toBe(true)
+	})
+
+	test("a review still missing after the wait is re-fired once, then given up on", async () => {
+		// A job that dies server-side leaves no trace on the PR. Waiting forever
+		// means one transient failure parks the PR permanently, which is the
+		// "stuck" complaint this fixes — so one recovery attempt is allowed after
+		// a wait no healthy review would exceed.
+		const h = harness({ prs: [makePr()] })
+		await processPr(h.deps, ctx) // tick 1: request accepted
+
+		// 16 minutes later: the recovery re-fire. `deps.now` is reassigned rather
+		// than rebuilt because the recorded request lives in the harness's fixState
+		// — a fresh harness would have no request to be late for.
+		const base = h.deps.now()
+		;(h.deps as any).now = () => base + 16 * 60 * 1000
+		const before = h.lines.length
+		const out = await processPr(h.deps, ctx)
+		const second = h.lines.slice(before)
+		expect(second.some((l) => l.includes("re-triggering once"))).toBe(true)
+		expect(second).toContain("   📡 No review → triggering PR-Agent...")
+		expect(out.triggered).toBe(true)
+
+		// An hour later: the second attempt also failed, so it stops. The bound is
+		// what makes this a recovery and not an infinite money leak.
+		;(h.deps as any).now = () => base + 60 * 60 * 1000
+		const before3 = h.lines.length
+		const out3 = await processPr(h.deps, ctx)
+		const third = h.lines.slice(before3)
+		expect(third.some((l) => l.includes("never posted a review"))).toBe(true)
+		expect(third).not.toContain("   📡 No review → triggering PR-Agent...")
+		expect(out3.triggered).toBe(false)
+		expect(out3.skipped).toBe(true)
 	})
 
 	test("a non-2xx trigger is reported verbatim and still not 'triggered'", async () => {

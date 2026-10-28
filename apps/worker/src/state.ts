@@ -107,6 +107,35 @@ export interface PrEntry {
 	 */
 	bad_bump?: string
 	bad_bump_sha?: string
+	/**
+	 * The head SHA a PR-Agent review was last REQUESTED for, and when (unix
+	 * seconds) that request was made.
+	 *
+	 * WHY THIS EXISTS. Triggering a review returns HTTP 200 as soon as the
+	 * request is ENQUEUED — `handle-webhook.ts` answers `{ok:true,triggered:true}`
+	 * before a single token is generated. The worker treated that 200 as success
+	 * and moved on, so when the review then died server-side (measured
+	 * 2026-10-28: the LLM key was scoped to one model, and every review failed
+	 * with a 403 on the fallback model) the report said
+	 * "✅ PR-Agent triggered (HTTP 200)" on every tick for hours while not one
+	 * review comment appeared. Nothing anywhere recorded that the review had been
+	 * asked for and never arrived, so "waiting for the reviewer" and "the
+	 * reviewer is broken" were indistinguishable from the queue's side.
+	 *
+	 * Recording the REQUEST (not the success) is what makes the two
+	 * distinguishable: a PR with no review comment and no record is awaiting a
+	 * first request, while one whose record is older than
+	 * `REVIEW_PENDING_REPORT_TICKS` is a review that never landed — and the report
+	 * says so instead of claiming a trigger succeeded.
+	 *
+	 * Keyed on the head SHA so a new commit re-opens the question: the new head
+	 * genuinely needs a new review, whatever happened to the old one.
+	 */
+	review_sha?: string
+	review_requested_at?: number
+	/** How many times a review has been requested for `review_sha` without a
+	 *  review comment ever appearing. Diagnostic, like `attempts`. */
+	review_requests?: number
 	[key: string]: unknown
 }
 
@@ -223,6 +252,78 @@ export function markBadBump(
 	entry.bad_bump_sha = headSha
 	if (file !== undefined) saveFixState(file, state)
 	return entry
+}
+
+/**
+ * How many times a review has already been requested at `headSha` without one
+ * ever appearing, or 0 when this head was never asked for.
+ *
+ * The tally is what lets the pipeline tell a FIRST request (which should be
+ * reported as a normal trigger) from a REPEAT one on a review that never
+ * landed — the case that used to print `✅ PR-Agent triggered (HTTP 200)`
+ * indefinitely. Keyed on its own `review_sha` rather than `sha`, for the same
+ * reason `bumpAttempt` keeps `attempt_sha`: `sha` means "the AI fix landed
+ * here", and a review request is not a fix.
+ */
+export function reviewRequestCount(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+	headSha: string,
+): number {
+	const entry = prEntry(state, repo, pr)
+	if (entry.review_sha !== headSha) return 0
+	const n = Number(entry.review_requests ?? 0)
+	return Number.isFinite(n) ? n : 0
+}
+
+/** When (unix seconds) a review was last requested at this head, or undefined. */
+export function reviewRequestedAt(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+	headSha: string,
+): number | undefined {
+	const entry = prEntry(state, repo, pr)
+	if (entry.review_sha !== headSha) return undefined
+	const t = Number(entry.review_requested_at)
+	return Number.isFinite(t) ? t : undefined
+}
+
+/**
+ * Record that a review was requested at `headSha`, and return the running count
+ * for this head. Call it only on an ACCEPTED request (2xx): a 403 or a socket
+ * error means the review was never queued, and counting it would blame the
+ * reviewer for a fault on our side.
+ */
+export function markReviewRequested(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+	headSha: string,
+	nowSec: number,
+	file?: string,
+): number {
+	const entry = prEntry(state, repo, pr)
+	const prior = entry.review_sha === headSha ? Number(entry.review_requests ?? 0) : 0
+	const next = (Number.isFinite(prior) ? prior : 0) + 1
+	entry.review_sha = headSha
+	entry.review_requested_at = nowSec
+	entry.review_requests = next
+	if (file !== undefined) saveFixState(file, state)
+	return next
+}
+
+/** Drop the pending-review record: a review arrived, so nothing is owed. */
+export function clearReviewRequest(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+): void {
+	const entry = prEntry(state, repo, pr)
+	delete entry.review_sha
+	delete entry.review_requested_at
+	delete entry.review_requests
 }
 
 /** `{ "owner/repo": { "<pr>": PrEntry } }` */

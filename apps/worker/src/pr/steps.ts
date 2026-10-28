@@ -18,9 +18,13 @@ import {
 	budgetRunCount,
 	bumpAttempt,
 	bumpBudgetRun,
+	clearReviewRequest,
 	markBadBump,
 	markFixed,
+	markReviewRequested,
 	markSkip,
+	reviewRequestCount,
+	reviewRequestedAt,
 } from "../state.ts"
 import { checkPrStillValid, killOrphanedAgent, runAiFix } from "./autofix.ts"
 import { commentBadBump, findBadBump } from "./bump-guard.ts"
@@ -52,6 +56,19 @@ import {
 import { fixBunLock, fixUvLock, isTrivialPr, repoHasBunLock } from "./lockfix.ts"
 import { closeToolchainPr, TOOLCHAIN_PINS, toolchainPinViolation } from "./pins.ts"
 import { findReviewComment, findTrivialNoReviewMarker, triggerReview } from "./review.ts"
+
+/**
+ * How long a requested-but-missing review must be outstanding before the worker
+ * fires it a second time.
+ *
+ * A healthy review on this deployment lands in seconds (measured: 22s for a
+ * two-PR tick), so 15 minutes cannot collide with one still in flight. The wait
+ * exists because the window is not "is the reviewer slow" but "did the job die":
+ * the webhook answers 2xx before any token is generated, so a review can be
+ * accepted, fail server-side and leave no trace on the PR. Re-firing inside that
+ * window would double-pay for a review that is about to post.
+ */
+const REVIEW_RETRY_AFTER_MIN = 15
 
 // ── STEP A0 — toolchain pin guard (1882-1899) ───────────────────────────────
 
@@ -90,6 +107,12 @@ export async function stepReview(deps: WorkerDeps, c: Ctx): Promise<string | nul
 	const found = await findReviewComment(deps.api, c.token, c.repo, c.prNum)
 	if (found) {
 		deps.report.push("   📝 Review found")
+		// A review arrived, so nothing is owed: clearing the record is what stops
+		// the "never landed" warning below from firing on a PR that is now fine.
+		if (reviewRequestCount(c.fixState, c.repo, c.prNum, c.headSha) > 0) {
+			clearReviewRequest(c.fixState, c.repo, c.prNum)
+			persist(deps, c.fixState)
+		}
 		return found
 	}
 	// The trivial-PR branch (1912-1923) is a fix, not an optimisation: a
@@ -105,6 +128,47 @@ export async function stepReview(deps: WorkerDeps, c: Ctx): Promise<string | nul
 		c.noCodeReview = true
 		return NO_CODE_REVIEW
 	}
+
+	// A review was already ASKED FOR at this head and never appeared. The trigger
+	// returned 2xx, so the request was accepted — but 2xx only means "enqueued"
+	// (handle-webhook.ts answers before any token is generated), so a review can
+	// be accepted and then die server-side with nothing posted. That is exactly
+	// what happened on 2026-10-28: the LLM key was scoped to one model, every
+	// review failed with a 403, and this code printed
+	// "✅ PR-Agent triggered (HTTP 200)" on every tick for hours.
+	//
+	// Say so, loudly, instead of re-printing a success line. A single re-fire is
+	// allowed once the wait has clearly outlived a normal review, because the
+	// failure that motivates this branch is often transient (a bad sample, a
+	// gateway blip) and the job that died left no trace on the PR. Past that
+	// limit the request is NOT repeated: each retry is a paid job queued behind
+	// the same fault, and re-firing forever is what turns a broken reviewer into
+	// a silent money leak. The evidence a human needs (the reviewer's own error)
+	// lives in the server's journal, so the report points there.
+	const priorRequests = reviewRequestCount(c.fixState, c.repo, c.prNum, c.headSha)
+	if (priorRequests > 0) {
+		const requestedAt = reviewRequestedAt(c.fixState, c.repo, c.prNum, c.headSha) ?? 0
+		const waitedMin = Math.max(0, Math.round((deps.now() - requestedAt) / 60))
+		deps.report.push(
+			`   ⚠️  Review requested ${priorRequests}× at this SHA, no review after ${waitedMin}m`,
+		)
+
+		// One recovery attempt, only after a wait no healthy review would exceed.
+		// `priorRequests` counting is what bounds it: the re-fire marks the request
+		// again, so the next tick sees 2 and goes to the give-up branch below.
+		if (waitedMin >= REVIEW_RETRY_AFTER_MIN && priorRequests < 2 && !deps.dry) {
+			deps.report.push(
+				`   🔁 No review after ${waitedMin}m — re-triggering once (the previous job died server-side)`,
+			)
+		} else {
+			deps.report.push(
+				"   🚨 PR-Agent accepted the request (HTTP 2xx) but never posted a review — the reviewer is failing server-side; check its journal. Not re-triggering.",
+			)
+			c.out.skipped = true
+			return null
+		}
+	}
+
 	deps.report.push("   📡 No review → triggering PR-Agent...")
 	const result = await triggerReview(
 		{
@@ -121,7 +185,11 @@ export async function stepReview(deps: WorkerDeps, c: Ctx): Promise<string | nul
 		c.baseRef,
 	)
 	if (typeof result === "number" && result >= 200 && result < 300) {
-		deps.report.push(`   ✅ PR-Agent triggered (HTTP ${result})`)
+		// Record the REQUEST, not a success — no review exists yet, and the next
+		// tick is what decides whether one ever arrives.
+		markReviewRequested(c.fixState, c.repo, c.prNum, c.headSha, deps.now())
+		persist(deps, c.fixState)
+		deps.report.push(`   ✅ PR-Agent accepted the request (HTTP ${result}) — awaiting the review`)
 		c.out.triggered = true
 	} else {
 		deps.report.push(`   ⚠️  Trigger result: ${result}`)
