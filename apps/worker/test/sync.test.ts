@@ -37,6 +37,7 @@ import {
 	pendingVerify,
 	type SyncConfig,
 	type SyncState,
+	skipRepoOverrides,
 	syncConfig,
 	syncEntry,
 	UPSTREAM_SYNC_DEFAULTS,
@@ -507,6 +508,24 @@ describe("group 2 · runUpstreamSync gating", () => {
 		deps.repoOverrides = { "asepharyana/shiro-neko": { interval_h: 6 } }
 		await runUpstreamSync(deps)
 		expect(attempts).toEqual([])
+	})
+
+	test("a fork listed in the skip overrides is never attempted and stays silent", async () => {
+		// The whole point of the opt-out: a 37-conflict fork must cost NOTHING —
+		// no clone, no agent call, and no report line (a quiet worker stays
+		// quiet, the same rule the other gates follow).
+		const attempts: string[] = []
+		const state: SyncState = {}
+		const deps = depsFor(fakeApi(routes("up1")).api, state, attempts)
+		deps.repoOverrides = skipRepoOverrides({
+			PR_AGENT_SYNC_SKIP_REPOS: "asepharyana/shiro-neko",
+		})
+		const lines = await runUpstreamSync(deps)
+		expect(attempts).toEqual([])
+		expect(lines).toEqual([])
+		// The entry is materialised by the sort but never stamped, so the fork is
+		// exactly where it was before the tick — clearing the list resumes it.
+		expect(state["asepharyana/shiro-neko"]?.last_attempt_sha).toBeUndefined()
 	})
 
 	test("per-tick budget is 2 and the longest-unsynced fork is served first", async () => {
@@ -1387,6 +1406,29 @@ describe("group 12 · syncConfig", () => {
 		expect(upstreamSyncEnabled({ PR_AGENT_UPSTREAM_SYNC: "0" })).toBe(false)
 		expect(upstreamSyncEnabled({ PR_AGENT_UPSTREAM_SYNC: "1" })).toBe(true)
 		expect(upstreamSyncEnabled({})).toBe(true)
+	})
+
+	test("PR_AGENT_SYNC_SKIP_REPOS becomes an enabled:false override per repo", () => {
+		// The operator's opt-out: a fork too divergent to sync. It has to reach
+		// `syncConfig` as `enabled: false`, because that is the flag the sweep
+		// reads (Python line 1750) — a list nothing consults would look like a
+		// disable and behave like no-op.
+		const overrides = skipRepoOverrides({
+			PR_AGENT_SYNC_SKIP_REPOS: " MythEclipse/9router , asepharyana/9router ,,",
+		})
+		expect(overrides).toEqual({
+			"MythEclipse/9router": { enabled: false },
+			"asepharyana/9router": { enabled: false },
+		})
+		expect(syncConfig("MythEclipse/9router", overrides).enabled).toBe(false)
+		// A fork NOT listed keeps the worker-wide default.
+		expect(syncConfig("o/other", overrides).enabled).toBe(true)
+	})
+
+	test("an unset or blank PR_AGENT_SYNC_SKIP_REPOS disables nothing", () => {
+		expect(skipRepoOverrides({})).toEqual({})
+		expect(skipRepoOverrides({ PR_AGENT_SYNC_SKIP_REPOS: "" })).toEqual({})
+		expect(skipRepoOverrides({ PR_AGENT_SYNC_SKIP_REPOS: " , " })).toEqual({})
 	})
 
 	test("the worker defaults are the Python's", () => {

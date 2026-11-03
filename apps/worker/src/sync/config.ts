@@ -186,3 +186,31 @@ export function upstreamSyncEnabled(
 ): boolean {
 	return env.PR_AGENT_UPSTREAM_SYNC !== "0"
 }
+
+/**
+ * `PR_AGENT_SYNC_SKIP_REPOS` — the operator's per-fork opt-out, resolved into
+ * the `enabled: false` override `syncConfig` already honours (Python line 1750).
+ *
+ * WHY THIS EXISTS: a fork whose local divergence is so large that every merge
+ * needs dozens of agent-resolved conflicts is not a sync candidate. The Python
+ * had no switch for it — an operator edited `UPSTREAM_SYNC["repos"]` in the
+ * source — and without one the only options here were "burn an hour of agent
+ * time per tick" or disable upstream sync for the whole installation.
+ *
+ * A COMMA-SEPARATED LIST, not JSON: the value lives in a systemd `Environment=`
+ * line, where a JSON blob needs quoting that a shell-less unit file gets wrong
+ * silently. A blank entry is dropped rather than becoming a repo named `""`.
+ *
+ * Read at CALL time from an injected env, exactly like `upstreamSyncEnabled`, so
+ * a test can drive it without mutating `process.env`.
+ */
+export function skipRepoOverrides(
+	env: Record<string, string | undefined> = process.env,
+): RepoOverrides {
+	const overrides: RepoOverrides = {}
+	for (const raw of (env.PR_AGENT_SYNC_SKIP_REPOS ?? "").split(",")) {
+		const repo = raw.trim()
+		if (repo) overrides[repo] = { enabled: false }
+	}
+	return overrides
+}

@@ -48,4 +48,23 @@ PrivateTmp=false
 # operator decision, not something to do silently here.
 # Bun writes its cache/transpile output; keep it out of the read-only tree.
 Environment=NODE_ENV=production
+# Forks the upstream auto-sync must NOT touch, comma-separated `owner/repo`
+# (read by `skipRepoOverrides`, apps/worker/src/sync/config.ts). Each entry
+# resolves to a per-repo `enabled: false`, so the fork is skipped silently
+# before any clone, agent call or report line — the same arm Python line 1750
+# takes for `cfg["enabled"]`.
+#
+# WHY THESE TWO: both 9router forks have diverged from decolua/9router far past
+# the point where a sync is a merge. The 2026-11-03 tick handed the agent 37
+# conflicts and it exited on `Reached max turns (100)` — an hour of the tick's
+# budget spent to land nothing, on every tick, for a fork whose local features
+# are the reason it exists. That is not a bug to fix in the resolver; the fork
+# is simply not a sync candidate.
+#
+# REMOVING AN ENTRY RESUMES THAT FORK on the next tick: nothing is written to
+# the sync state for a skipped fork, so the interval and already-attempted gates
+# are exactly where they were left. (The `skip_reason` already on disk is left
+# alone too — it stays until the fork is re-enabled AND found in sync, which is
+# sweep.ts gate 1. Editing it by hand would claim a fact nobody has checked.)
+Environment=PR_AGENT_SYNC_SKIP_REPOS=MythEclipse/9router,asepharyana/9router
 ExecStart=/usr/local/bin/bws-exec pr-agent env PR_AGENT_KEY_PATH=/var/lib/pr-agent-server/private-key.pem /opt/pr-agent-worker/run-worker.sh

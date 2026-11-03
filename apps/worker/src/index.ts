@@ -36,6 +36,7 @@ import { nodeWorkdirs, type ProcRunner } from "./pr/lockfix.ts"
 import { runTick, type WorkerDeps } from "./pr/pipeline.ts"
 import { Report } from "./report.ts"
 import { FIX_STATE_FILE, loadFixState, loadSyncState, saveFixState } from "./state.ts"
+import { skipRepoOverrides } from "./sync/config.ts"
 import { fileSyncState, runUpstreamSync } from "./sync/run.ts"
 
 // ── Config, all read at CALL time (Python lines 59-62) ──────────────────────
@@ -169,7 +170,12 @@ function buildDeps(opts: { dry: boolean; report: Report }): WorkerDeps {
 		saveFixState: (state) => saveFixState(FIX_STATE_FILE, state),
 		loadSyncState: () => syncState.load(),
 		saveSyncState: (state) => syncState.save(state),
-		repoOverrides: {},
+		// The operator's per-fork opt-out (`PR_AGENT_SYNC_SKIP_REPOS`), read here
+		// in the one module allowed to touch the environment and injected as data
+		// — the same rule `env.ts` states for every other config read. A fork
+		// listed here resolves to `enabled: false` and the sweep skips it
+		// (Python line 1750) without touching its state or its branch.
+		repoOverrides: skipRepoOverrides(),
 		now: () => Date.now() / 1000,
 		fetchImpl: (input, init) => fetch(input, init as RequestInit),
 		// The unshippable-bump guard's registry read. Wired here, in the one module
