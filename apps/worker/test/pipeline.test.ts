@@ -40,7 +40,11 @@ import { describe, expect, test } from "vitest"
 import type { PostResult } from "../src/claude-agent.ts"
 import type { GitResult, GitRunner } from "../src/git.ts"
 import { WorkerLock } from "../src/lock.ts"
-import { AI_FIX_BUDGET_CEILING, AI_FIX_RETRY_CEILING } from "../src/pr/context.ts"
+import {
+	AI_FIX_BUDGET_CEILING,
+	AI_FIX_RETRY_CEILING,
+	SAFETY_BLOCK_CEILING,
+} from "../src/pr/context.ts"
 import type { ProcRunner, Workdirs } from "../src/pr/lockfix.ts"
 import { SWEEP_MIN_AGE_HOURS, sweepPromptAudits, sweepStaleWorkdirs } from "../src/pr/lockfix.ts"
 import { processPr, runTick, UNRESOLVABLE_CONFLICT, type WorkerDeps } from "../src/pr/pipeline.ts"
@@ -379,7 +383,9 @@ describe("case 1 — a PR with no review triggers one and stops for this tick", 
 		// minutes for hours while the reviewer was dying server-side with a 403
 		// and posting nothing — the queue's own report was the reason nobody
 		// noticed. The report now says what is actually true: accepted, awaiting.
-		expect(h.lines).toContain("   ✅ PR-Agent accepted the request (HTTP 200) — awaiting the review")
+		expect(h.lines).toContain(
+			"   ✅ PR-Agent accepted the request (HTTP 200) — awaiting the review",
+		)
 		// Python `continue`s at line 1934 WITHOUT touching skipped_count, which the
 		// `toEqual` above already pins. An extra negative assertion here would be
 		// tautological: that conflict line is only reachable from the resolver,
@@ -545,6 +551,121 @@ describe("attempt tally — failures are recorded, never written off", () => {
 		await processPr(h.deps, ctx)
 		expect(h.fixState[REPO][String(PR_NUM)].skip_reason).toBeUndefined()
 		expect(h.fixState[REPO][String(PR_NUM)].attempts).toBe(1)
+	})
+
+	// ── THE CEILING. The one arm `attempts` could not bound. ─────────────────
+	//
+	// Everything above asserts a tally that only climbs, and that is correct for
+	// a gate waiting on something outside the worker. The safety gate is not
+	// that: the review body is fixed at a head and `analyzeReviewSafety` is
+	// deterministic, so re-reading it returns the same 0/10 forever. mcpedia#48
+	// did exactly that — `🔴 SAFETY BLOCKED (score: 0/10)` plus
+	// `🔁 ... (attempt 3 at this SHA — retrying next tick)` every five minutes,
+	// with the PR left open for a human to close by hand.
+	//
+	// These four tests pin the exit.
+
+	/** Seed a safety tally at `runs` for the current head. */
+	const safetySeeded = (runs: number): FixState => ({
+		[REPO]: {
+			[String(PR_NUM)]: { safety_block_sha: HEAD, safety_block_runs: runs },
+		},
+	})
+
+	test("below the ceiling the safety gate still only counts and retries", async () => {
+		// The behaviour that must survive: one refusal is not a reason to close
+		// somebody's PR. A transient renderer change, or a review posted
+		// mid-tick, both look like this.
+		const h = harness({
+			prs: [makePr()],
+			comments: [reviewComment(BLOCKED_REVIEW)],
+			fixState: safetySeeded(1),
+		})
+		const out = await processPr(h.deps, ctx)
+
+		expect(h.lines).toContain("   🔴 SAFETY BLOCKED (score: 0/10)")
+		expect(h.lines.some((l) => l.includes(`(2/${SAFETY_BLOCK_CEILING}`))).toBe(true)
+		expect(closes(h.calls).length).toBe(0)
+		expect(h.fixState[REPO][String(PR_NUM)].safety_block_runs).toBe(2)
+		expect(out.skipped).toBe(true)
+	})
+
+	test("reaching the ceiling CLOSES the PR instead of reading the same review again", async () => {
+		// The fix. The third identical refusal is the last one paid for: the
+		// verdict cannot change without a new head, so the loop is ended and the
+		// evidence is left on the PR.
+		const h = harness({
+			prs: [makePr()],
+			comments: [reviewComment(BLOCKED_REVIEW)],
+			fixState: safetySeeded(SAFETY_BLOCK_CEILING - 1),
+		})
+		const out = await processPr(h.deps, ctx)
+
+		expect(closes(h.calls).length).toBe(1)
+		expect(h.lines.some((l) => l.includes("closing"))).toBe(true)
+		// The reason a human needs is in the comment, not just the report.
+		const comment = h.calls.find(
+			(c) => c.method === "POST" && /\/issues\/\d+\/comments$/.test(c.path),
+		)
+		expect(JSON.stringify(comment?.json)).toContain("safety gate refused this review")
+		// And the PR is not read a fourth time: no further retry line.
+		expect(h.lines.some((l) => l.includes("retrying next tick"))).toBe(false)
+		expect(out.skipped).toBe(true)
+	})
+
+	test("a close is recorded as a skip, so a re-open at the same head cannot re-loop", async () => {
+		// Belt and braces. Closing normally takes the PR out of the open set, but
+		// a re-open puts it back at the SAME head — and without a skip reason it
+		// would walk straight back into the same four reads. Keyed on the head,
+		// so a new commit clears it and buys a fresh review.
+		const h = harness({
+			prs: [makePr()],
+			comments: [reviewComment(BLOCKED_REVIEW)],
+			fixState: safetySeeded(SAFETY_BLOCK_CEILING - 1),
+		})
+		await processPr(h.deps, ctx)
+
+		expect(h.fixState[REPO][String(PR_NUM)].skip_reason).toContain("safety gate blocked")
+	})
+
+	test("a FAILED close is not recorded, so the next tick can try again", async () => {
+		// The other direction, and the reason the close status is checked at all:
+		// treating a 500 as "retired" would leave the PR open with a skip reason
+		// suppressing it — invisible, and stuck for a different reason than the
+		// one being fixed here.
+		const h = harness({
+			prs: [makePr()],
+			comments: [reviewComment(BLOCKED_REVIEW)],
+			fixState: safetySeeded(SAFETY_BLOCK_CEILING - 1),
+		})
+		// Only the close PATCH fails; the comment POST still answers 200.
+		const realRequest = h.deps.api.request.bind(h.deps.api)
+		h.deps.api.request = async (method, path, o) => {
+			if (method === "PATCH" && /\/pulls\/\d+$/.test(path)) return { status: 500, data: {} }
+			return realRequest(method, path, o)
+		}
+		await processPr(h.deps, ctx)
+
+		expect(h.lines.some((l) => l.includes("Close failed HTTP 500"))).toBe(true)
+		expect(h.fixState[REPO][String(PR_NUM)].skip_reason).toBeUndefined()
+	})
+
+	test("the safety tally is per-HEAD — a new commit starts the count over", async () => {
+		// The escape hatch that makes closing safe. A force-push or a fix commit
+		// produces a new review, so the old refusal says nothing about the new
+		// head; a tally that survived the move would close a PR that had just
+		// been fixed.
+		const h = harness({
+			prs: [makePr()],
+			comments: [reviewComment(BLOCKED_REVIEW)],
+			fixState: {
+				[REPO]: { [String(PR_NUM)]: { safety_block_sha: "old".repeat(13), safety_block_runs: 99 } },
+			},
+		})
+		await processPr(h.deps, ctx)
+
+		expect(closes(h.calls).length).toBe(0)
+		expect(h.fixState[REPO][String(PR_NUM)].safety_block_runs).toBe(1)
 	})
 
 	test("branch protection is counted too — a rule change moves no SHA", async () => {

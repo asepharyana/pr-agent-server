@@ -14,9 +14,16 @@
  * The stale-dependabot age arithmetic (Python 2051) is `ageDays` in `./context`.
  */
 
-import { alreadyFixed, bumpAttempt, bumpBudgetRun, markFixed, markSkip } from "../state.ts"
+import {
+	alreadyFixed,
+	bumpAttempt,
+	bumpBudgetRun,
+	bumpSafetyBlock,
+	markFixed,
+	markSkip,
+} from "../state.ts"
 import { checkPrStillValid, killOrphanedAgent, runAiFix } from "./autofix.ts"
-import { checkCiPassed, closeStaleCiPr, STALE_CI_CLOSE_DAYS } from "./ci.ts"
+import { checkCiPassed, closeSafetyBlockedPr, closeStaleCiPr, STALE_CI_CLOSE_DAYS } from "./ci.ts"
 import {
 	AI_FIX_BUDGET_CEILING,
 	AI_FIX_ENABLED,
@@ -30,6 +37,7 @@ import {
 	persist,
 	refetchHead,
 	reportSkipNotice,
+	SAFETY_BLOCK_CEILING,
 	stripInfra,
 	strOf,
 	subDeps,
@@ -137,11 +145,73 @@ export async function stepSafetyAndCi(deps: WorkerDeps, c: Ctx, review: string):
 	for (const reason of safety.reasons) deps.report.push(`   ${reason}`)
 	if (!safety.safe) {
 		deps.report.push(`   🔴 SAFETY BLOCKED (score: ${safety.score}/10)`)
-		// Counted, because this arm used to be invisible: a block is not an
+		// COUNTED, because this arm used to be invisible: a block is not an
 		// `[INFRA]` failure, so nothing was written and the identical block
-		// recurred every five minutes indefinitely. Now it escalates.
-		await noteFailure(deps, c, `safety gate blocked the review (score ${safety.score}/10)`)
+		// recurred every five minutes indefinitely.
+		//
+		// COUNTED TWICE, on purpose, and the two numbers answer different
+		// questions. `attempts` is the unbounded diagnostic every arm writes —
+		// it is what lets a human see "attempt 47" and go look. `safety_block_runs`
+		// is the bounded rule, because this gate is the ONE arm that cannot
+		// retry its way to a different answer: `stepReview` only fetches a new
+		// body when it finds none, so while a review exists the same bytes are
+		// scored every tick, and `analyzeReviewSafety` is deterministic. A
+		// tally that only climbs is a log, not a rule — mcpedia#48 printed the
+		// identical 0/10 forever with `attempt 3` next to it and nothing acted.
+		//
+		// `noteFailure` is called on the RETRY arm only, not here. It prints
+		// "retrying next tick", and printing that on the same tick that closes
+		// the PR would contradict the line directly below it.
+		const runs = bumpSafetyBlock(c.fixState, c.repo, c.prNum, c.headSha)
+		persist(deps, c.fixState)
 		c.out.skipped = true
+		if (runs < SAFETY_BLOCK_CEILING) {
+			await noteFailure(deps, c, `safety gate blocked the review (score ${safety.score}/10)`)
+			persist(deps, c.fixState)
+			deps.report.push(
+				`   🔁 Safety gate refused this review (${runs}/${SAFETY_BLOCK_CEILING} at this SHA — retrying next tick)`,
+			)
+			return true
+		}
+		// THE CEILING. Nothing the worker can do between ticks changes this
+		// verdict, so re-reading it a fourth time is the loop. Retire the PR
+		// with the evidence attached; see `closeSafetyBlockedPr` for why a
+		// close beats an unbounded wait here, and `SAFETY_BLOCK_CEILING` for
+		// why the count is small.
+		const why = `safety gate blocked the review (score ${safety.score}/10) ${runs}× at this SHA`
+		if (deps.dry) {
+			deps.report.push(`   🧪 dry run: would close #${c.prNum} (safety gate refused ${runs}×)`)
+			return true
+		}
+		deps.report.push(`   ⛔ Safety gate refused ${runs}× — closing #${c.prNum} rather than looping`)
+		const { status } = await closeSafetyBlockedPr(
+			deps.api,
+			c.token,
+			c.repo,
+			c.prNum,
+			safety.reasons,
+			runs,
+			c.headSha,
+		)
+		if (status === 200) {
+			// A `skip_reason` on top of the close, so a PR that is somehow
+			// re-opened at the SAME head does not walk straight back into the
+			// same four reads. Keyed on the head, so a new commit clears it.
+			//
+			// NOT paired with an explicit `notify("failed")`. The other two
+			// close arms (`stepPinGuard`, the stale-CI close) notify nothing, and
+			// `markSkip` is exactly the state that makes the NEXT tick send the
+			// single `skipped` notice through `notifySkipOnce`. Calling notify
+			// here as well would put two messages on the channel for one event.
+			markSkip(c.fixState, c.repo, c.prNum, c.headSha, why)
+			persist(deps, c.fixState)
+			deps.report.push(`   ✅ Closed #${c.prNum} (safety gate refused ${runs}×)`)
+		} else {
+			// A failed close is NOT recorded as done: the next tick must be
+			// able to try again, which is what leaving the tally at the ceiling
+			// and the skip unwritten achieves.
+			deps.report.push(`   ⚠️  Close failed HTTP ${status} — will retry next tick`)
+		}
 		return true
 	}
 	deps.report.push(`   ✅ Safety score: ${safety.score}/10`)

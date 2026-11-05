@@ -96,6 +96,33 @@ export interface PrEntry {
 	 *  same reason as `attempt_sha`. */
 	budget_sha?: string
 	/**
+	 * How many times the SAFETY GATE has refused this head's review, and the head
+	 * it was refused at.
+	 *
+	 * THE THIRD COUNTER, and it exists because this gate is the one failure that
+	 * cannot be retried into a different answer. Every other arm here waits for
+	 * something OUTSIDE the worker to change — CI going green, a head moving, a
+	 * repo rule being relaxed — and `attempts` records that wait. The safety gate
+	 * instead reads a value that is FIXED at this head: `stepReview` only fetches
+	 * a new body when it finds NO review, so while a review exists the same bytes
+	 * are scored every tick. `analyzeReviewSafety` is deterministic, so an
+	 * identical body returns an identical verdict forever. Measured on
+	 * mcpedia#48: both review bodies on the PR score `{safe:false, score:0}`,
+	 * and nothing in the pipeline can ever post a third one.
+	 *
+	 * `attempts` alone therefore produced the exact loop this worker exists to
+	 * prevent — the same `🔴 SAFETY BLOCKED (score: 0/10)` every five minutes,
+	 * with a number climbing next to it that nothing acted on. A tally that only
+	 * climbs is a log, not a rule; this one has a ceiling, and reaching it retires
+	 * the PR (see `pr/safety-block.ts`) instead of paying for a fourth identical
+	 * read.
+	 *
+	 * Keyed on `safety_block_sha` so a head that moves re-opens the question: a
+	 * force-push or a fix commit buys a genuinely new review and a fresh count.
+	 */
+	safety_block_runs?: number
+	safety_block_sha?: string
+	/**
 	 * The reason this bump was judged UNSHIPPABLE (see `pr/bump-guard.ts`), and
 	 * the head it was judged at.
 	 *
@@ -223,6 +250,42 @@ export function budgetRunCount(
 	return Number.isFinite(n) ? n : 0
 }
 
+/**
+ * Record that the safety gate refused this head's review, and return the running
+ * count for this head.
+ *
+ * Separate from `bumpAttempt` for the reason its field documents: `attempts` is
+ * an unbounded diagnostic and this is a bounded rule. Sharing one number would
+ * either give the diagnostic a ceiling it must not have, or leave the gate
+ * uncapped — and the uncapped version is the five-minute loop on mcpedia#48.
+ */
+export function bumpSafetyBlock(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+	headSha: string,
+): number {
+	const entry = prEntry(state, repo, pr)
+	const prior = entry.safety_block_sha === headSha ? Number(entry.safety_block_runs ?? 0) : 0
+	const next = (Number.isFinite(prior) ? prior : 0) + 1
+	entry.safety_block_sha = headSha
+	entry.safety_block_runs = next
+	return next
+}
+
+/** How many times the safety gate has already refused this head's review. */
+export function safetyBlockCount(
+	state: FixState,
+	repo: string,
+	pr: number | string,
+	headSha: string,
+): number {
+	const entry = prEntry(state, repo, pr)
+	if (entry.safety_block_sha !== headSha) return 0
+	const n = Number(entry.safety_block_runs ?? 0)
+	return Number.isFinite(n) ? n : 0
+}
+
 /** The cached "unshippable bump" reason for this head, or undefined. */
 export function badBumpReason(
 	state: FixState,
@@ -315,11 +378,7 @@ export function markReviewRequested(
 }
 
 /** Drop the pending-review record: a review arrived, so nothing is owed. */
-export function clearReviewRequest(
-	state: FixState,
-	repo: string,
-	pr: number | string,
-): void {
+export function clearReviewRequest(state: FixState, repo: string, pr: number | string): void {
 	const entry = prEntry(state, repo, pr)
 	delete entry.review_sha
 	delete entry.review_requested_at
@@ -537,6 +596,15 @@ export function markFixed(
 	// the last one in a spent budget.
 	delete entry.budget_runs
 	delete entry.budget_sha
+	// THE SAFETY TALLY IS DELIBERATELY *NOT* CLEARED HERE, and that is a
+	// correction rather than an omission. `stepAiFix` runs BEFORE the safety
+	// gate, so this function is called on the same tick the gate then refuses —
+	// clearing the count here would reset it to 1 every tick and the ceiling
+	// would be unreachable, which is the exact loop the ceiling exists to end.
+	// It also is not needed: a fix that actually pushes moves the head, and the
+	// tally is keyed on `safety_block_sha`, so a new head already reads 0. A fix
+	// that pushes NOTHING (0 commits, the common dependabot outcome) leaves the
+	// head — and therefore the review — untouched, so the count must stand.
 	if (file !== undefined) saveFixState(file, state)
 	return entry
 }
@@ -569,6 +637,11 @@ export function markSkip(
 	// failure would escalate straight back to a pin with no fresh attempts.
 	delete entry.attempts
 	delete entry.attempt_sha
+	// The safety tally is deliberately KEPT here. `markSkip` is what the gate
+	// writes once it gives up, so erasing the count that justified giving up
+	// would leave the state file unable to say why the PR was retired — and
+	// `getSkipReason` is what stops the next tick from re-reading the same
+	// review, so nothing loops either way.
 	if (file !== undefined) saveFixState(file, state)
 	return entry
 }

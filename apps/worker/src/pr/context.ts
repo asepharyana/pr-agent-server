@@ -81,6 +81,37 @@ export const AI_FIX_RETRY_CEILING = 3
  * budget was spent, so the operator can see why the agent stopped.
  */
 export const AI_FIX_BUDGET_CEILING = 3
+
+/**
+ * How many times the SAFETY GATE may refuse the SAME review at ONE head before
+ * the PR is retired instead of read again.
+ *
+ * A FOURTH bound, and it exists because the three above all bound work that can
+ * change its own answer. This gate cannot. `stepReview` returns the review body
+ * it FINDS and only asks for a new one when it finds none, so while a review
+ * exists the worker scores the same bytes every five minutes; `analyzeReviewSafety`
+ * is deterministic, so the verdict is identical every time. Nothing the worker
+ * does between ticks can turn a 0/10 into a pass — the only things that can are
+ * a new commit (a new head, a new review, a fresh count) or a human.
+ *
+ * MEASURED, not assumed. mcpedia#48's two review bodies were fed to the real
+ * `analyzeReviewSafety`: both return `{safe:false, score:0}`, and there is no
+ * third body. `attempts` climbed next to it on every tick and nothing read the
+ * number, so the report printed `🔴 SAFETY BLOCKED (score: 0/10)` and
+ * `🔁 ... (attempt 3 at this SHA — retrying next tick)` forever.
+ *
+ * So the count is bounded and the PR is CLOSED with the evidence commented, the
+ * same disposition as a stale red CI and a toolchain pin violation. Closing is
+ * the recoverable outcome here: the reason is on the PR, a re-open costs one
+ * click, and a dependabot bump that is closed is re-proposed by the next group
+ * run — whereas an open PR that loops forever costs a full tick every five
+ * minutes and teaches the operator to stop reading the channel.
+ *
+ * Small on purpose: three reads is already more than one deterministic gate
+ * needs. The first two exist so a transient renderer change or a review posted
+ * mid-tick cannot retire a PR on a single unlucky read.
+ */
+export const SAFETY_BLOCK_CEILING = 3
 /** Python line 1866, `pr.get("title", "untitled")[:60]`. */
 const TITLE_CAP = 60
 /** Python line 2051, the `86400` in the dependabot age arithmetic. */

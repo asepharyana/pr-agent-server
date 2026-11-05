@@ -235,3 +235,56 @@ export async function closeStaleCiPr(
 	})
 	return { status: closed.status, commentStatus: comment.status }
 }
+
+/**
+ * Close a PR the SAFETY GATE has refused `SAFETY_BLOCK_CEILING` times at one head.
+ *
+ * WHY A CLOSE AND NOT ANOTHER WAIT. Every other terminal arm in this worker can
+ * name something outside itself that would change the answer: green CI, a moved
+ * head, a relaxed branch rule. This one cannot. The review body is fixed at a
+ * head and `analyzeReviewSafety` is deterministic, so a fourth read returns the
+ * fourth identical 0/10 — measured on mcpedia#48, where the two bodies on the PR
+ * both score `{safe:false, score:0}` and no third body can appear.
+ *
+ * The comment is the ONLY record of why a PR vanished from the queue, so it goes
+ * first and carries the gate's own reason lines rather than a summary of them —
+ * the operator needs to see whether the reviewer found something real or emitted
+ * a shape the gate could not read. As with the two close helpers above, the close
+ * is not conditional on the comment landing.
+ *
+ * `dry` is handled by the caller, not here: this function always acts.
+ */
+export async function closeSafetyBlockedPr(
+	api: GhClient,
+	token: string,
+	repo: string,
+	pr: number,
+	reasons: readonly string[],
+	attempts: number,
+	headSha: string,
+): Promise<CloseResult> {
+	const findings = reasons.length
+		? reasons.map((r) => `- ${r}`).join("\n")
+		: "- (the gate reported no reasons)"
+	const body =
+		`⛔ Auto-closed by PR Queue Worker — **the safety gate refused this review ${attempts}× at one commit**.\n\n` +
+		`The gate scores every review before merging, and this one has not passed. ` +
+		`The verdict is fixed at a commit: the worker re-reads the same review body ` +
+		`and gets the same answer, so it would otherwise retry this PR forever.\n\n` +
+		`**What the gate said:**\n\n${findings}\n\n` +
+		`Commit: \`${headSha}\`\n\n` +
+		`If the finding above is a real problem, fix it and re-open — the next review ` +
+		`is scored from scratch. If it looks wrong (the reviewer described a fix as a ` +
+		`concern, or emitted a shape the gate could not read), that is a worker bug, ` +
+		`not a problem with this change.`
+
+	const comment = await api.request("POST", `/repos/${repo}/issues/${pr}/comments`, {
+		token,
+		json: { body },
+	})
+	const closed = await api.request("PATCH", `/repos/${repo}/pulls/${pr}`, {
+		token,
+		json: { state: "closed" },
+	})
+	return { status: closed.status, commentStatus: comment.status }
+}
