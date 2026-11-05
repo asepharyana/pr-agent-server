@@ -235,6 +235,97 @@ describe("safety — detail beyond the brief table", () => {
 		}
 	})
 
+	test("a row describing the update's OWN security fixes is not a finding here", () => {
+		// THE LIVE BODY from mcpedia#48, byte for byte — trimmed only of the
+		// dependency table above it. The `🔒` row answers a question about the
+		// BUMP, not about this repository: the reviewer was asked whether the
+		// update touches security, and said "yes, it fixes things". Read as a
+		// concern, that blocked a security update because it was a security
+		// update — 0/10, every five minutes, forever.
+		const live = [
+			"## PR Reviewer Guide 🔍",
+			"",
+			"<table>",
+			"<tr><td>⏱️&nbsp;<strong>Estimated effort to review</strong>: 1 🔵⚪⚪⚪⚪</td></tr>",
+			"<tr><td>🧪&nbsp;<strong>No relevant tests</strong></td></tr>",
+			"<tr><td>⚡&nbsp;<strong>Key issues to review</strong><br><br>",
+			"",
+			"No key issues identified",
+			"</td></tr>",
+			"<tr><td>🔒&nbsp;<strong>Security concerns</strong><br><br>",
+			"",
+			"Yes. Hono security fixes.</td></tr>",
+			"</table>",
+		].join("\n")
+		const r = analyzeReviewSafety(live)
+		expect(r.reasons).toContain(
+			"ℹ️ Security row describes the update's security fixes, not a finding here",
+		)
+		expect(r.safe).toBe(true)
+		// NOT the clean bonus: the reviewer was answering a different question,
+		// so this must not score what a verified-clean row scores.
+		expect(r.reasons).not.toContain("✅ Security: clean")
+	})
+
+	test("a remediation reading still blocks when the row names a weakness", () => {
+		// The asymmetry that makes widening safe. These rows mention a fix AND a
+		// weakness; a false clear merges a vulnerability, so every one of them
+		// must stay a hard block.
+		for (const body of [
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nThe bump patches the middleware bypass\n</td>",
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nFixes CVE-2026-1234 but hardcoded secret in config.ts\n</td>",
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nSecurity fixes applied; SQL injection remains in src/auth.ts\n</td>",
+		]) {
+			const r = analyzeReviewSafety(body)
+			expect(r.safe, body).toBe(false)
+			expect(r.reasons, body).toContain("🔴 Security concern — blocking")
+		}
+	})
+
+	test("an OBLIGATION phrased as a fix is still a finding, not a remediation", () => {
+		// The false clear this guard was widened for, caught by probing the real
+		// gate rather than by reading it. "needs a security fix" and "the update
+		// fixes security" are one word apart and mean opposite things about this
+		// PR; without `OBLIGATION` the first was promoted to `remediated` and the
+		// PR could merge on a finding against its own code.
+		for (const body of [
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nYes, this needs a security fix before merging</td>",
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nThe auth helper should be patched for security</td>",
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nSecurity fix required in src/session.ts</td>",
+		]) {
+			const r = analyzeReviewSafety(body)
+			expect(r.safe, body).toBe(false)
+			expect(r.reasons, body).toContain("🔴 Security concern — blocking")
+		}
+	})
+
+	test("a real finding with no remediation language is untouched by the new reading", () => {
+		// The pre-existing contract, re-pinned because the row reader changed:
+		// these are the shapes the gate was rebuilt to catch.
+		for (const body of [
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\n**src/auth.ts** — SQL injection risk\n</td></tr>",
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\nYes - TLS certificate trust issue\n</td></tr>",
+			"### 🔒 Security concerns\n\nSQL injection in src/auth.ts\n### ⚡ No major issues detected",
+		]) {
+			expect(analyzeReviewSafety(body).safe, body).toBe(false)
+		}
+	})
+
+	test("the long mcpedia#48 body is NOT promoted — it describes three CVEs", () => {
+		// The same PR posted two reviews. The second enumerates a path bypass, a
+		// wildcard-middleware skip and a CSRF bypass, so it names risk language
+		// and stays blocked. That is the intended outcome: this one is retired by
+		// the safety-block ceiling instead of looping, not waved through.
+		const long =
+			"🔒&nbsp;<strong>Security concerns</strong><br><br>\n\n" +
+			"**Hono security fixes**: includes several security fixes:\n\n" +
+			"1. **Path bypass vulnerability**: crafted requests could bypass middleware.\n" +
+			"</td></tr>"
+		const r = analyzeReviewSafety(long)
+		expect(r.safe).toBe(false)
+		expect(r.reasons).toContain("🔴 Security concern — blocking")
+	})
+
 	test("a missing security row is neither a pass nor a penalty", async () => {
 		// No `🔒` row at all is not evidence of anything. It used to cost a
 		// point as "Security unclear", which docked a review merely for using a

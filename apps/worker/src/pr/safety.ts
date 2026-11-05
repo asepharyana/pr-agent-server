@@ -56,9 +56,90 @@ const ERROR_PATTERNS = [
 
 /**
  * The verdict a `🔒` row carries: `clear` (the reviewer found nothing),
- * `concern` (it reported something), or `absent` (no such row in the body).
+ * `remediated` (the row says the UPDATE fixes security problems rather than
+ * introducing them), `concern` (it reported something in THIS code), or
+ * `absent` (no such row in the body).
  */
-export type SecurityVerdict = "clear" | "concern" | "absent"
+export type SecurityVerdict = "clear" | "remediated" | "concern" | "absent"
+
+/**
+ * A row that describes the update REMEDIATING security problems, not a finding
+ * in this code.
+ *
+ * THE BUG THIS EXISTS FOR. A dependency-bump review answers the security
+ * question about the BUMP, not about the repository, so its "Yes" means "yes,
+ * this update contains security fixes". mcpedia#48's body says, in full:
+ *
+ *   🔒 Security concerns → `Yes. Hono security fixes.`
+ *
+ * which the gate read as `concern` and blocked at 0/10 — a security UPDATE
+ * refused because it is a security update. Every other shape in that row
+ * ("SQL injection in src/auth.ts", "Yes - TLS certificate trust issue") really
+ * is a finding, so the phrase alone cannot decide it; the sentence has to be
+ * read for the direction of the claim.
+ *
+ * WHAT MAKES THIS SAFE TO WIDEN. A remediation reading is only granted when the
+ * row names no risk language AT ALL — see `RISK_MARKER`. The long mcpedia#48
+ * body describes "path bypass", "CSRF bypass" and "crafted requests", so it
+ * still blocks and is retired by the ceiling instead of looping. The asymmetry
+ * is deliberate: a false `concern` costs a closed PR a human can re-open, and a
+ * false `clear` merges a vulnerability. Only the unambiguously positive reading
+ * is promoted, and the reason line says which reading was taken so the report
+ * never claims a clean review it did not see.
+ */
+const REMEDIATION =
+	/\b(?:security|vulnerabilit(?:y|ies)|cve[-\s]?\d*)\b[^.]{0,48}?\b(?:fix|fixes|fixed|patch|patches|patched|remediat\w*|address\w*|resolv\w*|harden\w*|mitigat\w*)\b/i
+
+/**
+ * Any of these in the row means it is describing a weakness, so the remediation
+ * reading is refused. Kept as a plain word list rather than a parser: the gate
+ * only needs to answer "did the reviewer name something dangerous", and an
+ * unrecognised danger word must fall through to the blocking default.
+ */
+const RISK_MARKER =
+	/\b(?:injection|xss|csrf|ssrf|rce|leak\w*|expos\w*|exploit\w*|bypass\w*|vulnerab\w*|insecure|unsafe|trust issue|certificate|hardcod\w*|secret|credential|auth(?:entication|orization)? bypass|privilege|traversal|overflow|dos|denial)\b/i
+
+/**
+ * Words that make a sentence a DEMAND about this PR rather than a description of
+ * the update. `needs`, `should`, `must`, `requires` all point at work still to be
+ * done here, so a row containing one is never a remediation reading.
+ *
+ * THIS CLOSES A FALSE CLEAR, measured rather than imagined. Without it,
+ * `"Yes, this needs a security fix before merging"` — a real finding in this code
+ * — matched `REMEDIATION` (the words "security" and "fix" sit close together) and
+ * contained no risk noun, so it was promoted to `remediated` and the PR could be
+ * merged. The obligation words are what separate "the update fixes X" from "we
+ * must fix X".
+ */
+const OBLIGATION =
+	/\b(?:need(?:s|ed)?|should|must|require(?:s|d)?|ought|todo|to be fixed|before merg\w*)\b/i
+
+/**
+ * Does this row read as "the update fixes security problems"?
+ *
+ * THREE halves are required, and each one was earned by a measurement:
+ *   - a remediation phrase (`REMEDIATION`);
+ *   - NO risk language at all (`RISK_MARKER`) — "the hono bump patches the
+ *     middleware bypass" names a weakness, so it stays a finding; and
+ *   - NO obligation language (`OBLIGATION`) — "needs a security fix" is a demand
+ *     about this PR, not a description of the dependency.
+ *
+ * The asymmetry is the point: a false `concern` closes a PR a human can re-open,
+ * a false clear merges a vulnerability. So the gate only ever promotes the
+ * unambiguously positive reading, and everything it refuses stays blocked.
+ *
+ * NOT COVERED HERE, and deliberately left alone: a row that OPENS with a
+ * negation is resolved by `SEC_NEGATION` before this function runs, so
+ * "No security fixes needed, but SQL injection in src/auth.ts" still reads as
+ * clean. That is a pre-existing hole in the negation rule (measured against the
+ * code before this change — it behaves identically there), and fixing it means
+ * deciding what a negation followed by real prose means, which is a separate
+ * question from the one this function answers. Naming it here so the next reader
+ * does not mistake this guard for a complete defence.
+ */
+function readsAsRemediation(detail: string): boolean {
+	return REMEDIATION.test(detail) && !RISK_MARKER.test(detail) && !OBLIGATION.test(detail)
+}
 
 /**
  * The boundary of one review section: a cell close (`</td>`), an `### ` heading,
@@ -139,7 +220,12 @@ function readSecurityRow(body: string): { verdict: SecurityVerdict; detail: stri
 		.replace(/no security concerns identified|security concerns?/i, " ")
 		.replace(/^[>\s*+-]+/gm, " ")
 		.trim()
-	return { verdict: SEC_NEGATION.test(detail) || detail === "" ? "clear" : "concern", detail }
+	if (SEC_NEGATION.test(detail) || detail === "") return { verdict: "clear", detail }
+	// Before defaulting to `concern`: a bump review's "Yes" answers a different
+	// question than a code review's, and `readsAsRemediation` is the narrow
+	// reading that tells them apart. Everything it refuses stays a concern.
+	if (readsAsRemediation(detail)) return { verdict: "remediated", detail }
+	return { verdict: "concern", detail }
 }
 
 /**
@@ -233,6 +319,14 @@ export function analyzeReviewSafety(body: string): SafetyResult {
 	if (sec.verdict === "clear") {
 		reasons.push("✅ Security: clean")
 		score += 2
+	} else if (sec.verdict === "remediated") {
+		// The row described the UPDATE fixing security problems, not a finding
+		// in this code. It is not evidence of a clean review — the reviewer was
+		// answering a different question — so it earns the point a missing row
+		// earns (none) rather than the +2 a verified-clean row earns. That keeps
+		// the pass/fail boundary where it was: a bump review still has to clear
+		// the ⚡ row to reach the threshold.
+		reasons.push("ℹ️ Security row describes the update's security fixes, not a finding here")
 	} else if (sec.verdict === "concern") {
 		return { safe: false, reasons: ["🔴 Security concern — blocking"], score: 0 }
 	} else {
