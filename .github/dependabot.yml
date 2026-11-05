@@ -1,0 +1,33 @@
+# Dependabot v2 — the default config installed on every fork.
+#
+# VERSION 2 IS MANDATORY. Dependabot ignores the whole file on any other value.
+# The `groups` block is what keeps a burst of transitive bumps from turning into
+# a burst of PRs, which is what this sync exists to keep quiet.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Jakarta"
+    labels: ["dependencies"]
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Jakarta"
+    labels: ["dependencies"]
+    groups:
+      actions:
+        dependency-type: "production"
