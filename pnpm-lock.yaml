@@ -9,11 +9,11 @@ importers:
   .:
     devDependencies:
       '@biomejs/biome':
-        specifier: 2.6.3
-        version: 2.6.3
-      '@moonrepo/cli':
         specifier: 2.6.4
         version: 2.6.4
+      '@moonrepo/cli':
+        specifier: 2.6.5
+        version: 2.6.5
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -40,10 +40,10 @@ importers:
         version: 1.16.1
       better-auth:
         specifier: ^1.7.14
-        version: 1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
+        version: 1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
+        version: 0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
       hono:
         specifier: ^4.13.14
         version: 4.13.14
@@ -64,14 +64,14 @@ importers:
         version: 4.6.7
     devDependencies:
       '@electric-sql/pglite':
-        specifier: ^0.5.12
-        version: 0.5.12
+        specifier: ^0.5.14
+        version: 0.5.14
       '@electric-sql/pglite-socket':
-        specifier: ^0.2.15
-        version: 0.2.15(@electric-sql/pglite-age@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_hashids@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_ivm@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_textsearch@0.0.14(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_uuidv7@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pgtap@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pgvector@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite@0.5.12)
+        specifier: ^0.2.17
+        version: 0.2.17(@electric-sql/pglite-age@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_hashids@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_ivm@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_textsearch@0.0.16(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_uuidv7@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pgtap@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pgvector@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite@0.5.14)
       '@types/node':
-        specifier: ^26.6.5
-        version: 26.6.5
+        specifier: ^26.6.6
+        version: 26.6.6
       '@types/nunjucks':
         specifier: ^3.2.6
         version: 3.2.6
@@ -92,7 +92,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   apps/web:
     dependencies:
@@ -113,7 +113,7 @@ importers:
         version: 1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       better-auth:
         specifier: ^1.7.14
-        version: 1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
+        version: 1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -132,16 +132,16 @@ importers:
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
-        version: 4.3.3(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 4.3.3(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       '@tanstack/router-cli':
         specifier: ^1.167.46
         version: 1.167.46
       '@tanstack/router-plugin':
         specifier: ^1.168.48
-        version: 1.168.48(@tanstack/react-router@1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 1.168.48(@tanstack/react-router@1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       '@types/node':
-        specifier: ^26.6.5
-        version: 26.6.5
+        specifier: ^26.6.6
+        version: 26.6.6
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -150,7 +150,7 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.1.2
-        version: 6.1.2(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 6.1.2(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -159,13 +159,13 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.3.5
-        version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
   apps/worker:
     devDependencies:
       '@types/node':
-        specifier: ^26.6.5
-        version: 26.6.5
+        specifier: ^26.6.6
+        version: 26.6.6
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
@@ -177,7 +177,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
 packages:
 
@@ -324,71 +324,71 @@ packages:
   '@better-fetch/fetch@1.3.3':
     resolution: {integrity: sha512-U6SlDt/GUWtK2JAxS/NhdoYTEim+EL1G5byz2TUj83KjLZBUpYzb5SmX0aXaCnbGkAjFKnV/o/0+cyXMbEcqqg==}
 
-  '@biomejs/biome@2.6.3':
-    resolution: {integrity: sha512-va/0xPku7wnfzv+D8Zpdm5uKiGJWiV8neqoEPnRjvNQQwhl4tVXS4fETs4H0CCB2rGeqJ4cu9y4iOZOnOYKAUA==}
+  '@biomejs/biome@2.6.4':
+    resolution: {integrity: sha512-8sKKwaNW4ot22awZ3lBjwWLHnUFXgXnrBPYS2gNlBAXRbDC++7kqjK2H7dR/FgCDtPvO1xfKpgEhJkGxAKYkxA==}
     engines: {node: '>=14.21.3'}
     hasBin: true
 
-  '@biomejs/cli-android-arm64@2.6.3':
-    resolution: {integrity: sha512-5JD7QQDEHxdeEb4sftEHG+lsuUyu8Cob/hVLqRELbgGlFl68Rldv/PPi2k4dRjERZ/EItJ3O6Xmv8lqsEtUBiw==}
+  '@biomejs/cli-android-arm64@2.6.4':
+    resolution: {integrity: sha512-jwrwigP4tBcHxzuV8izioX/BOUhJL/4e2rNSOE5nCjBkVC018LQAQUGiH+CNkFYvLtQ1dcZo5/xXERmaAGc7JQ==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [android]
 
-  '@biomejs/cli-android-x64@2.6.3':
-    resolution: {integrity: sha512-70WOGKCgpT+Uqg6LFdTLqefV54/DypdZg+LnBQDO6AWvkgXO+9xhVClajQyDsIHYjnXMtI1pRO5sP+zMXlS/bw==}
+  '@biomejs/cli-android-x64@2.6.4':
+    resolution: {integrity: sha512-HdGInPJ4nZFwHxzvEtcp2nmSBtUyJrurmtIK43upFckuS3+ZqVM05HtsxQWnqGsuy/pxckIAjyKWlEKRlBXUyA==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [android]
 
-  '@biomejs/cli-darwin-arm64@2.6.3':
-    resolution: {integrity: sha512-ezf+XEKeyJ2yYlBhrzyEEHLvfRYrhtNKc6maLzR/WcAcBccb4RVDeFxsymjBve2LO0bpIMRUAiS90D4bUBRT0A==}
+  '@biomejs/cli-darwin-arm64@2.6.4':
+    resolution: {integrity: sha512-0VvcUz46wbg59Q4TZ59KkIjDJrxEyu4Eoe79+F4SChxoWe+W7AEyIp6F5r72C9+p6MsB6dIovnZt1D30lGM3XA==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [darwin]
 
-  '@biomejs/cli-darwin-x64@2.6.3':
-    resolution: {integrity: sha512-Lg2tFdg4elJo+7i707PpLMs6N1hATVt4kqDo6MD/q/VnPs8rsKReKXsz1TA5GNdfRVAQNJ5GRiyK2EwNptK+MA==}
+  '@biomejs/cli-darwin-x64@2.6.4':
+    resolution: {integrity: sha512-fxmvkF81srlS3DiMyfm+aG3J0eG+6/BjaxRyjy57KbLSafnq0PO+hHfVWmtH2ty0S7nm6yDXBRwySfFeaRJKRQ==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [darwin]
 
-  '@biomejs/cli-linux-arm64-musl@2.6.3':
-    resolution: {integrity: sha512-dYU70A89OFHzakQPE9VOPbE60JNcQt4mtxvUGQl+EgTkGtqCFxLD2RUn1SbiMu8Mu5xFscS1bfYDpoasaUrqNA==}
+  '@biomejs/cli-linux-arm64-musl@2.6.4':
+    resolution: {integrity: sha512-31ZaH/MHqPX+O+evRwRrCHQ8W5/9adY+/eMytGGWZnRx1T41QsWIF09+/WujynLBhWZUxNGS5CtsWLwgOFTAyg==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@biomejs/cli-linux-arm64@2.6.3':
-    resolution: {integrity: sha512-8Stcvq98n1gs9VyLKuaWrnsd8kbXE2nKDAHtuLHGSYdGyNWN5JIIm5a28xdnmgdKzKHmiDgYyATetkEv7+zGow==}
+  '@biomejs/cli-linux-arm64@2.6.4':
+    resolution: {integrity: sha512-6+bK1Y/evmIUiJr7auertuMbiaYVicJhqA1bZyL47lCMWugv8l0gFQCqvR/gN1vZMHYm+HwoTKgeMxdNFCoQTg==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@biomejs/cli-linux-x64-musl@2.6.3':
-    resolution: {integrity: sha512-j6eFjUcWSphmgVTbrobEMA0wdbfNHKrGi8hRsFkc17jeS1n7nHwFACxp6jWqe9sxQqyFAeyOgt2/1bOGVcbATA==}
+  '@biomejs/cli-linux-x64-musl@2.6.4':
+    resolution: {integrity: sha512-bomSa2XdQAGGj6Cwdm4M13qE+lN9+AOlW8KtI4hdyVyRRF/Z71qPAi95T4wtdZK0QpBbkTW8hgbZZCwPi4xzIw==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@biomejs/cli-linux-x64@2.6.3':
-    resolution: {integrity: sha512-CShmx0bO6BngywT3minv8K1xsQX1ig1vsBqYTLnmDY3mBiDYHlaLRIsdHoM1pEU9dV3BN5a0uiH0IGDtYh9TWA==}
+  '@biomejs/cli-linux-x64@2.6.4':
+    resolution: {integrity: sha512-tbFZMdL6dP/ws4edXxYG9WhvaVa1ZDzL4G5DzahnWW7Psib9H+VTdyU4XXVxpJk5j/nYZroSbvSNyYlpW3yCIw==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@biomejs/cli-win32-arm64@2.6.3':
-    resolution: {integrity: sha512-00SthDxBPwNiT7IL/mOneif6fiEU1PXK875zhr+InpeZjovY1mF5tCuDhXo1Hh0GYyiKHKzLbItzn58SAyLhJQ==}
+  '@biomejs/cli-win32-arm64@2.6.4':
+    resolution: {integrity: sha512-eCsqt8Ma3eVap+oyJCDnJZH60SIU464B66n3y38EUTJdM1T/HfZol1FJC9vb+sHToX0ix8XzqPcwJnOzyAJz0g==}
     engines: {node: '>=14.21.3'}
     cpu: [arm64]
     os: [win32]
 
-  '@biomejs/cli-win32-x64@2.6.3':
-    resolution: {integrity: sha512-GhtOPphBWlnCepqpNk/w5eGN5oGRCzL20EbAkL1XCIpyboeVC9R642noyT43l8LSenGS4qz9IL8sKPfwY37V/Q==}
+  '@biomejs/cli-win32-x64@2.6.4':
+    resolution: {integrity: sha512-pYsMy5AThiHFOZAsngg8qN4PurM6nInKBhVX7sbj3eNpRQqo1Hb0MgCwPL7VqVMrmcEEMj9Ks3qbkallR65e8g==}
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
@@ -396,56 +396,56 @@ packages:
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
 
-  '@electric-sql/pglite-age@0.0.13':
-    resolution: {integrity: sha512-RvN0SaVfAiAaU8qxaBrviEoUoUTyb9PwbW0eOkZsY8ppPQ0CFEGzEW9mwYeL7qqfVDMaowZXN6nKYAPrOv8c+g==}
+  '@electric-sql/pglite-age@0.0.15':
+    resolution: {integrity: sha512-Nd9UQNgeiRE+ZCj7VbQT32hsYNWBHbJfLM5jQtvA7adgkmdrwEqI2a+YPok1oNgujMltukvq61jY2J9/b7Vx/Q==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_hashids@0.0.13':
-    resolution: {integrity: sha512-WzjBiGFAMGrZPQzPSs6g3M8fVLp6gaJZ5X2BqMaLnDlqp8a0kD5tL9C+5WXkRrcGL8/WyZG1fUkQdUOp33TqyQ==}
+  '@electric-sql/pglite-pg_hashids@0.0.15':
+    resolution: {integrity: sha512-yhlwMi2uAxKMv8yn/lQdJhl9DWJlgcemmipp5iwNjw3O4fZTFpYYdZ9mJz77LCHm4w7h28UfrsEYnE4KIlpARA==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_ivm@0.0.13':
-    resolution: {integrity: sha512-OSGx2EsjUlpi8cZW6fXLUK/Rs4wGqxzpTajuHEXW1iErHiZSV+aOhWwDzaZ4E+YRtPmXh9PXkbE3rZPiQO/enA==}
+  '@electric-sql/pglite-pg_ivm@0.0.15':
+    resolution: {integrity: sha512-7aJF88cFxrWEtfuscYvjorvc6/HZOQ1IwUd2gL8hLDfB8meOzHVf6Rg4x0G3fc/k1tORz8Tr6IkCs3Ny3x9DZw==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_textsearch@0.0.14':
-    resolution: {integrity: sha512-fIJXQ9JUfp8CgeGUoNa7mHb0YeqxOA8DTK0vfUdGoDKFen3EIhTr5Gptevwe+1fbP8JAbTOB/ceedxwOXwNsZA==}
+  '@electric-sql/pglite-pg_textsearch@0.0.16':
+    resolution: {integrity: sha512-yuzxtBslBkpwhqzpQ7o1jhsc7VYsJCaSGFn2US54j1OZvNPPySLI8bjs2GHN1iyDOhSJilZLHM3Zwm1NjOknUA==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_uuidv7@0.0.13':
-    resolution: {integrity: sha512-XiQ9nafO5Crzm+FhecWTD120LpbdIawUBhTRo1hxmwqvlP8Xl59UcBpCT3GHVehKIhM3Sb/OML4qVykCzp4+lg==}
+  '@electric-sql/pglite-pg_uuidv7@0.0.15':
+    resolution: {integrity: sha512-DLDc1tBTABYedI4XU9zagkaNKlyFL95Al5y00dda8HiGcK4D8SwHxYdSmzAWNEI0p3eWkWk1t9hp78ox6Q+8Ng==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pgtap@0.0.13':
-    resolution: {integrity: sha512-rU2JAQ8bsRoJf2BWF+5iWif+gQyFBMBQIorATQ8a2jeWjcB8KYuBx+kLunFRwCQm7BAU/EVXNJdk9c1NR/HqGw==}
+  '@electric-sql/pglite-pgtap@0.0.15':
+    resolution: {integrity: sha512-WWyw8E/V69RbkEpWBAsZX/Jd9GnTLu7p4mNy54fAsjcmJ5NX3xYm4S8YOKGEcOEAQnaGb+gixPQq/2SO3rT3DQ==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pgvector@0.0.13':
-    resolution: {integrity: sha512-tTRGigSCWnrT3PdqkL69MpAyCovwpbxbPdHgqv7QKgOQZu85meXUymprvnJ/JTg361UC5GaBX1hnDfULn3bHnA==}
+  '@electric-sql/pglite-pgvector@0.0.15':
+    resolution: {integrity: sha512-t022ZzaH95MD+FFY+1f1gw8NqSEot3ZW7XM8jNQnEJDcWN+dUaosS/CKqJHFCopGUSE4cwsc18ucbx5trd3jtQ==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-socket@0.2.15':
-    resolution: {integrity: sha512-jGGy7elVhY9OuxBTjqunmNyr4+BzVAYMexRRik79RGwnNYy4LO+X2MJXJOgrc9/7IL7plaWj9emx2eH7sOIhiA==}
+  '@electric-sql/pglite-socket@0.2.17':
+    resolution: {integrity: sha512-ok5iCCWgKYSUStQXhumjTaXBM5/RKuoHFtQ1So+Voc3JqqLg/LJQjq5Vqfkrn7iTIDeX76mS7YUf/Z7tmyRDMQ==}
     hasBin: true
     peerDependencies:
-      '@electric-sql/pglite': 0.5.12
-      '@electric-sql/pglite-age': 0.0.13
-      '@electric-sql/pglite-pg_hashids': 0.0.13
-      '@electric-sql/pglite-pg_ivm': 0.0.13
-      '@electric-sql/pglite-pg_textsearch': 0.0.14
-      '@electric-sql/pglite-pg_uuidv7': 0.0.13
-      '@electric-sql/pglite-pgtap': 0.0.13
-      '@electric-sql/pglite-pgvector': 0.0.13
+      '@electric-sql/pglite': 0.5.14
+      '@electric-sql/pglite-age': 0.0.15
+      '@electric-sql/pglite-pg_hashids': 0.0.15
+      '@electric-sql/pglite-pg_ivm': 0.0.15
+      '@electric-sql/pglite-pg_textsearch': 0.0.16
+      '@electric-sql/pglite-pg_uuidv7': 0.0.15
+      '@electric-sql/pglite-pgtap': 0.0.15
+      '@electric-sql/pglite-pgvector': 0.0.15
 
-  '@electric-sql/pglite@0.5.12':
-    resolution: {integrity: sha512-IiAxv1ld1V9QP0AWsflliDqrGRo+20O+yXOr2fjk6YzBHsCvTPclwQhCB1uZ7eHtPrxUrSllNzWgqy/Ot76PEw==}
+  '@electric-sql/pglite@0.5.14':
+    resolution: {integrity: sha512-aAQe7iArcFB2w1xtx91l3l9trxhMzD6aZf+WnosSHNhwgp70EJz80Igw/bHnW14fUEFYWPBoQ1sGom8Xc0Jttg==}
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
@@ -921,46 +921,46 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@moonrepo/cli@2.6.4':
-    resolution: {integrity: sha512-ek5nUwgLkuh5rNVzhsaCvzRnWvIerDdRJVbHESmeblSONIHL1R52MflKoeibqLJ2XhE5RNCyjfS78B1M7Qf/Cg==}
+  '@moonrepo/cli@2.6.5':
+    resolution: {integrity: sha512-/YiKxp0rpzEAVZfQUrchqi6M0gxmKFe9UWFRvU4UiN9xExSh/LZ2w42URpbKwRlsZ+9T1cnhOaFd30Ak5Ws8jg==}
     hasBin: true
 
-  '@moonrepo/core-linux-arm64-gnu@2.6.4':
-    resolution: {integrity: sha512-BIzo1E7t1AnLO5TZr3YU8/p9I34WkmUypCdvIe/AUAdQUo+IES8DgaryBO16YeYB2anAveDGA8DxhhWds2lMiw==}
+  '@moonrepo/core-linux-arm64-gnu@2.6.5':
+    resolution: {integrity: sha512-5KbT3jpQasoz1vxPUBpNlT4zn4SfxgukGZwAhIUVQ4SSnEE8NRoIsPPxwRtwqA01OF25z6OXtRwb+oCVqx34BQ==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@moonrepo/core-linux-arm64-musl@2.6.4':
-    resolution: {integrity: sha512-NBE08jmxc+XvAGfA3FmI4xhAMXS1f2H3ld3ZecQ+VQLV0dVH2yU6JIN0ZvseiSthJFv8p/SHh+eovI5/y54+pg==}
+  '@moonrepo/core-linux-arm64-musl@2.6.5':
+    resolution: {integrity: sha512-me/pWDwmBCRtumirZzbifL5mEdRX3sA0PTZa/3rAH2zTyxUzbcLo0zRvKLzuoKdv9Kb9UHXhJCnJjF/PKewi1w==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@moonrepo/core-linux-x64-gnu@2.6.4':
-    resolution: {integrity: sha512-RJdBV8c3CVPZzqYx3Hd43mbfBds3mnvGn80rvogmK0YMKnQOb8MUEKt4LnKDzsbJPOItBKaRXGR2vVQ3ins1SA==}
+  '@moonrepo/core-linux-x64-gnu@2.6.5':
+    resolution: {integrity: sha512-b2CQqdh/gMdaeEAO5aBr8wHPZT51gG5oRQyiFSe3eO08JnoMvMJRgu6ezBMty7ZB5DHMRxtvGwEJAWHtpEb8hg==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@moonrepo/core-linux-x64-musl@2.6.4':
-    resolution: {integrity: sha512-IlmCBulxt81R3k+qgIM47iTz8whgwhkTWzZcel4cZMPQdArAqSv4x13kULVQ3SJ2q00wovdiBlqIWLpjqvQ9LQ==}
+  '@moonrepo/core-linux-x64-musl@2.6.5':
+    resolution: {integrity: sha512-7JB1CRfbuy61tRFKYQ9lXx/08DeUQsqM14GRKBUbf/x1/6zIaeiJfWAc3te+wA9havh4dRlDCJb/xUxvXwC6ag==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@moonrepo/core-macos-arm64@2.6.4':
-    resolution: {integrity: sha512-DY63ZWr+PgaIG91GnIXi1ZBuK67qQs+gkHPHU31zTn8M2hYf6lHPDSMeLJ7bXoDPmQTvMWSmNjpDLxet3nw5Iw==}
+  '@moonrepo/core-macos-arm64@2.6.5':
+    resolution: {integrity: sha512-6HlPGuezrTlVBRaouA+ecm7deJuze5HJ9ZqG9cZHjgKlWW+9bwYoFfxfrAM+CHzzlJ/M0JMNz+zJNZPfBlW5Iw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@moonrepo/core-macos-x64@2.6.4':
-    resolution: {integrity: sha512-m3/yh5nYpCjtt9ulwV0DTdq9zgpFxk0+kzl0y2RFQgMpJ4SqYp+gIME3X/C3to8AyC1TVsuFJ995PVJHQvnRIg==}
+  '@moonrepo/core-macos-x64@2.6.5':
+    resolution: {integrity: sha512-MqRjiJK7s/e/72PNY+U3yScVK3vXvCdZmJAJ2GNA6o+RtTKp4KWEQqU8cTcRU9MkiPQBtQopmuyTTIOs7jYWYg==}
     cpu: [x64]
     os: [darwin]
 
-  '@moonrepo/core-windows-x64-msvc@2.6.4':
-    resolution: {integrity: sha512-NvAFdbbpu1dpTx6L0y3LwQUnaezW6iPw0L1YBaGPm0/FD2qN0YFRE1FB5iqUz7oyiRhvn9uJiMIlt3wux8fSaw==}
+  '@moonrepo/core-windows-x64-msvc@2.6.5':
+    resolution: {integrity: sha512-og4icd3Xsc19cFraq/fW87U1r7IxgtjpEV1Zg8pJl5uEK+LYQTOhNy5Qfn+1PHvmEcsxhjC52/7ijlp54aCGRw==}
     cpu: [x64]
     os: [win32]
 
@@ -1544,8 +1544,8 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
-  '@types/node@26.6.5':
-    resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
+  '@types/node@26.6.6':
+    resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
   '@types/nunjucks@3.2.6':
     resolution: {integrity: sha512-pHiGtf83na1nCzliuAdq8GowYiXvH5l931xZ0YEHaLMNFgynpEqx+IPStlu7UaDkehfvl01e4x/9Tpwhy7Ue3w==}
@@ -2727,12 +2727,12 @@ snapshots:
       nanostores: 1.5.5
       zod: 4.6.7
 
-  '@better-auth/drizzle-adapter@1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))':
+  '@better-auth/drizzle-adapter@1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))':
     dependencies:
       '@better-auth/core': 1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
       '@better-auth/utils': 0.5.1
     optionalDependencies:
-      drizzle-orm: 0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
+      drizzle-orm: 0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
 
   '@better-auth/kysely-adapter@1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(kysely@0.29.6)':
     dependencies:
@@ -2768,91 +2768,91 @@ snapshots:
 
   '@better-fetch/fetch@1.3.3': {}
 
-  '@biomejs/biome@2.6.3':
+  '@biomejs/biome@2.6.4':
     optionalDependencies:
-      '@biomejs/cli-android-arm64': 2.6.3
-      '@biomejs/cli-android-x64': 2.6.3
-      '@biomejs/cli-darwin-arm64': 2.6.3
-      '@biomejs/cli-darwin-x64': 2.6.3
-      '@biomejs/cli-linux-arm64': 2.6.3
-      '@biomejs/cli-linux-arm64-musl': 2.6.3
-      '@biomejs/cli-linux-x64': 2.6.3
-      '@biomejs/cli-linux-x64-musl': 2.6.3
-      '@biomejs/cli-win32-arm64': 2.6.3
-      '@biomejs/cli-win32-x64': 2.6.3
+      '@biomejs/cli-android-arm64': 2.6.4
+      '@biomejs/cli-android-x64': 2.6.4
+      '@biomejs/cli-darwin-arm64': 2.6.4
+      '@biomejs/cli-darwin-x64': 2.6.4
+      '@biomejs/cli-linux-arm64': 2.6.4
+      '@biomejs/cli-linux-arm64-musl': 2.6.4
+      '@biomejs/cli-linux-x64': 2.6.4
+      '@biomejs/cli-linux-x64-musl': 2.6.4
+      '@biomejs/cli-win32-arm64': 2.6.4
+      '@biomejs/cli-win32-x64': 2.6.4
 
-  '@biomejs/cli-android-arm64@2.6.3':
+  '@biomejs/cli-android-arm64@2.6.4':
     optional: true
 
-  '@biomejs/cli-android-x64@2.6.3':
+  '@biomejs/cli-android-x64@2.6.4':
     optional: true
 
-  '@biomejs/cli-darwin-arm64@2.6.3':
+  '@biomejs/cli-darwin-arm64@2.6.4':
     optional: true
 
-  '@biomejs/cli-darwin-x64@2.6.3':
+  '@biomejs/cli-darwin-x64@2.6.4':
     optional: true
 
-  '@biomejs/cli-linux-arm64-musl@2.6.3':
+  '@biomejs/cli-linux-arm64-musl@2.6.4':
     optional: true
 
-  '@biomejs/cli-linux-arm64@2.6.3':
+  '@biomejs/cli-linux-arm64@2.6.4':
     optional: true
 
-  '@biomejs/cli-linux-x64-musl@2.6.3':
+  '@biomejs/cli-linux-x64-musl@2.6.4':
     optional: true
 
-  '@biomejs/cli-linux-x64@2.6.3':
+  '@biomejs/cli-linux-x64@2.6.4':
     optional: true
 
-  '@biomejs/cli-win32-arm64@2.6.3':
+  '@biomejs/cli-win32-arm64@2.6.4':
     optional: true
 
-  '@biomejs/cli-win32-x64@2.6.3':
+  '@biomejs/cli-win32-x64@2.6.4':
     optional: true
 
   '@drizzle-team/brocli@0.10.2': {}
 
-  '@electric-sql/pglite-age@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-age@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_hashids@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pg_hashids@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_ivm@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pg_ivm@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_textsearch@0.0.14(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pg_textsearch@0.0.16(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pg_uuidv7@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pg_uuidv7@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pgtap@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pgtap@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-pgvector@0.0.13(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-pgvector@0.0.15(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
 
-  '@electric-sql/pglite-socket@0.2.15(@electric-sql/pglite-age@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_hashids@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_ivm@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_textsearch@0.0.14(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pg_uuidv7@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pgtap@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite-pgvector@0.0.13(@electric-sql/pglite@0.5.12))(@electric-sql/pglite@0.5.12)':
+  '@electric-sql/pglite-socket@0.2.17(@electric-sql/pglite-age@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_hashids@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_ivm@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_textsearch@0.0.16(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pg_uuidv7@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pgtap@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite-pgvector@0.0.15(@electric-sql/pglite@0.5.14))(@electric-sql/pglite@0.5.14)':
     dependencies:
-      '@electric-sql/pglite': 0.5.12
-      '@electric-sql/pglite-age': 0.0.13(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pg_hashids': 0.0.13(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pg_ivm': 0.0.13(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pg_textsearch': 0.0.14(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pg_uuidv7': 0.0.13(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pgtap': 0.0.13(@electric-sql/pglite@0.5.12)
-      '@electric-sql/pglite-pgvector': 0.0.13(@electric-sql/pglite@0.5.12)
+      '@electric-sql/pglite': 0.5.14
+      '@electric-sql/pglite-age': 0.0.15(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pg_hashids': 0.0.15(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pg_ivm': 0.0.15(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pg_textsearch': 0.0.16(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pg_uuidv7': 0.0.15(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pgtap': 0.0.15(@electric-sql/pglite@0.5.14)
+      '@electric-sql/pglite-pgvector': 0.0.15(@electric-sql/pglite@0.5.14)
 
-  '@electric-sql/pglite@0.5.12': {}
+  '@electric-sql/pglite@0.5.14': {}
 
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:
@@ -3109,37 +3109,37 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@moonrepo/cli@2.6.4':
+  '@moonrepo/cli@2.6.5':
     dependencies:
       detect-libc: 2.1.2
     optionalDependencies:
-      '@moonrepo/core-linux-arm64-gnu': 2.6.4
-      '@moonrepo/core-linux-arm64-musl': 2.6.4
-      '@moonrepo/core-linux-x64-gnu': 2.6.4
-      '@moonrepo/core-linux-x64-musl': 2.6.4
-      '@moonrepo/core-macos-arm64': 2.6.4
-      '@moonrepo/core-macos-x64': 2.6.4
-      '@moonrepo/core-windows-x64-msvc': 2.6.4
+      '@moonrepo/core-linux-arm64-gnu': 2.6.5
+      '@moonrepo/core-linux-arm64-musl': 2.6.5
+      '@moonrepo/core-linux-x64-gnu': 2.6.5
+      '@moonrepo/core-linux-x64-musl': 2.6.5
+      '@moonrepo/core-macos-arm64': 2.6.5
+      '@moonrepo/core-macos-x64': 2.6.5
+      '@moonrepo/core-windows-x64-msvc': 2.6.5
 
-  '@moonrepo/core-linux-arm64-gnu@2.6.4':
+  '@moonrepo/core-linux-arm64-gnu@2.6.5':
     optional: true
 
-  '@moonrepo/core-linux-arm64-musl@2.6.4':
+  '@moonrepo/core-linux-arm64-musl@2.6.5':
     optional: true
 
-  '@moonrepo/core-linux-x64-gnu@2.6.4':
+  '@moonrepo/core-linux-x64-gnu@2.6.5':
     optional: true
 
-  '@moonrepo/core-linux-x64-musl@2.6.4':
+  '@moonrepo/core-linux-x64-musl@2.6.5':
     optional: true
 
-  '@moonrepo/core-macos-arm64@2.6.4':
+  '@moonrepo/core-macos-arm64@2.6.5':
     optional: true
 
-  '@moonrepo/core-macos-x64@2.6.4':
+  '@moonrepo/core-macos-x64@2.6.5':
     optional: true
 
-  '@moonrepo/core-windows-x64-msvc@2.6.4':
+  '@moonrepo/core-windows-x64-msvc@2.6.5':
     optional: true
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
@@ -3569,12 +3569,12 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.3.3
       '@tailwindcss/oxide-win32-x64-msvc': 4.3.3
 
-  '@tailwindcss/vite@4.3.3(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
+  '@tailwindcss/vite@4.3.3(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@tailwindcss/node': 4.3.3
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
   '@tanstack/history@1.162.5': {}
 
@@ -3631,7 +3631,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@tanstack/router-plugin@1.168.48(@tanstack/react-router@1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
+  '@tanstack/router-plugin@1.168.48(@tanstack/react-router@1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/template': 7.29.7
@@ -3640,11 +3640,11 @@ snapshots:
       '@tanstack/router-generator': 1.167.46
       '@tanstack/router-utils': 1.162.4
       chokidar: 5.0.0
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       zod: 4.6.7
     optionalDependencies:
       '@tanstack/react-router': 1.170.46(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@farmfe/core'
       - '@rspack/core'
@@ -3681,7 +3681,7 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
-  '@types/node@26.6.5':
+  '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
 
@@ -3689,7 +3689,7 @@ snapshots:
 
   '@types/pg@8.23.1':
     dependencies:
-      '@types/node': 26.6.5
+      '@types/node': 26.6.6
       pg-protocol: 1.16.1
       pg-types: 2.2.0
 
@@ -3761,19 +3761,19 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitejs/plugin-react@6.1.2(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
+  '@vitejs/plugin-react@6.1.2(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  '@vitest/mocker@5.0.5(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
+  '@vitest/mocker@5.0.5(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.0.5
       estree-walker: 3.0.3
       magic-string: 1.4.3
     optionalDependencies:
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
   '@vitest/spy@5.0.5': {}
 
@@ -3800,10 +3800,10 @@ snapshots:
 
   before-after-hook@4.0.0: {}
 
-  better-auth@1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))):
+  better-auth@1.7.14(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))):
     dependencies:
       '@better-auth/core': 1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
-      '@better-auth/drizzle-adapter': 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))
+      '@better-auth/drizzle-adapter': 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1))
       '@better-auth/kysely-adapter': 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(kysely@0.29.6)
       '@better-auth/memory-adapter': 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)
       '@better-auth/mongo-adapter': 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.5.1)
@@ -3821,11 +3821,11 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       drizzle-kit: 0.31.11
-      drizzle-orm: 0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
+      drizzle-orm: 0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
       pg: 8.23.1
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
-      vitest: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
@@ -3889,9 +3889,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.12)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1):
+  drizzle-orm@0.45.4(@electric-sql/pglite@0.5.14)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1):
     optionalDependencies:
-      '@electric-sql/pglite': 0.5.12
+      '@electric-sql/pglite': 0.5.14
       '@types/pg': 8.23.1
       kysely: 0.29.6
       pg: 8.23.1
@@ -4376,7 +4376,7 @@ snapshots:
 
   universal-user-agent@7.0.3: {}
 
-  unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)):
+  unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.15)(rollup@4.64.2)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       '@jridgewell/remapping': 2.3.5
       picomatch: 4.0.7
@@ -4385,7 +4385,7 @@ snapshots:
       esbuild: 0.28.2
       rolldown: 1.2.15
       rollup: 4.64.2
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
   update-browserslist-db@1.3.4(browserslist@4.29.3):
     dependencies:
@@ -4397,7 +4397,7 @@ snapshots:
     dependencies:
       react: 19.3.1
 
-  vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1):
+  vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -4405,17 +4405,17 @@ snapshots:
       rolldown: 1.2.15
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.6.5
+      '@types/node': 26.6.6
       esbuild: 0.28.2
       fsevents: 2.3.3
       jiti: 2.7.0
       tsx: 4.23.15
       yaml: 2.9.1
 
-  vitest@5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)):
+  vitest@5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.5(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      '@vitest/mocker': 5.0.5(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -4426,10 +4426,10 @@ snapshots:
       tinybench: 6.2.2
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
       why-is-node-running: 3.2.1
     optionalDependencies:
-      '@types/node': 26.6.5
+      '@types/node': 26.6.6
     transitivePeerDependencies:
       - msw
 
